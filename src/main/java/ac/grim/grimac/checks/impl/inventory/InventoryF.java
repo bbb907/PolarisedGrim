@@ -9,7 +9,7 @@ import com.github.retrooper.packetevents.manager.server.ServerVersion;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 
-@CheckData(name = "InventoryE", setback = 3, experimental = true)
+@CheckData(name = "InventoryF", setback = 3, experimental = true)
 public class InventoryF extends InventoryCheck {
 
     public InventoryF(GrimPlayer player) {
