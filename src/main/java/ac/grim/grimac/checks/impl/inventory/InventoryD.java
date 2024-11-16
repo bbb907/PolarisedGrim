@@ -2,13 +2,13 @@ package ac.grim.grimac.checks.impl.inventory;
 
 import ac.grim.grimac.checks.Check;
 import ac.grim.grimac.checks.CheckData;
+import ac.grim.grimac.checks.type.InventoryCheck;
 import ac.grim.grimac.checks.type.PostPredictionCheck;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
 import ac.grim.grimac.utils.data.VectorData;
 import ac.grim.grimac.utils.data.VectorData.MoveVectorData;
 import ac.grim.grimac.utils.data.VehicleData;
-import ac.grim.grimac.utils.latency.CompensatedInventory;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
@@ -17,32 +17,11 @@ import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerCl
 import java.util.StringJoiner;
 
 @CheckData(name = "InventoryD", setback = 1, decay = 0.25)
-public class InventoryD extends Check implements PostPredictionCheck {
+public class InventoryD extends InventoryCheck {
     private int horseJumpVerbose;
 
     public InventoryD(GrimPlayer player) {
         super(player);
-    }
-
-    @Override
-    public void onPacketReceive(final PacketReceiveEvent event) {
-        if (event.getPacketType() == PacketType.Play.Client.CLICK_WINDOW) {
-            final CompensatedInventory compensatedInventory = player.getInventory();
-
-            // Disallow any clicks if inventory is closing
-            if (compensatedInventory.closeTransaction != CompensatedInventory.NONE && shouldModifyPackets()) {
-                event.setCancelled(true);
-                player.onPacketCancel();
-                player.getInventory().needResend = true;
-            }
-        } else if (event.getPacketType() == PacketType.Play.Client.CLOSE_WINDOW) {
-            final CompensatedInventory compensatedInventory = player.getInventory();
-
-            // Players with high ping can close inventory faster than send transaction back
-            if (compensatedInventory.closeTransaction != CompensatedInventory.NONE && compensatedInventory.closePacketsToSkip-- <= 0) {
-                compensatedInventory.closeTransaction = CompensatedInventory.NONE;
-            }
-        }
     }
 
     @Override
@@ -79,7 +58,7 @@ public class InventoryD extends Check implements PostPredictionCheck {
             }
 
             if (flag()) {
-                player.getInventory().closeInventory();
+                closeInventory();
 
                 StringJoiner joiner = new StringJoiner(" ");
 
