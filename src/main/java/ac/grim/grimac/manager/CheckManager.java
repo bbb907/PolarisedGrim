@@ -18,6 +18,7 @@ import ac.grim.grimac.checks.impl.inventory.InventoryC;
 import ac.grim.grimac.checks.impl.inventory.InventoryD;
 import ac.grim.grimac.checks.impl.inventory.InventoryE;
 import ac.grim.grimac.checks.impl.inventory.InventoryF;
+import ac.grim.grimac.checks.impl.inventory.InventoryG;
 import ac.grim.grimac.checks.impl.misc.ClientBrand;
 import ac.grim.grimac.checks.impl.misc.FastBreak;
 import ac.grim.grimac.checks.impl.misc.GhostBlockMitigation;
@@ -111,6 +112,7 @@ public class CheckManager {
                 .put(InventoryC.class, new InventoryC(player))
                 .put(InventoryE.class, new InventoryE(player))
                 .put(InventoryF.class, new InventoryF(player))
+                .put(InventoryG.class, new InventoryG(player))
                 .put(FastBreak.class, new FastBreak(player))
                 .put(TransactionOrder.class, new TransactionOrder(player))
                 .put(NoSlowB.class, new NoSlowB(player))
