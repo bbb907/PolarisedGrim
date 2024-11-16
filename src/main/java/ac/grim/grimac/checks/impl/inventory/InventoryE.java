@@ -29,7 +29,7 @@ public class InventoryE extends InventoryCheck {
                         event.setCancelled(true);
                         player.onPacketCancel();
                     }
-                    player.getInventory().closeInventory();
+                    closeInventory();
                     alert("Sent a held item change packet while inventory is open");
                 }
             } else {

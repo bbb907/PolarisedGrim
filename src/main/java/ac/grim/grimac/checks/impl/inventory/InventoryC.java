@@ -30,7 +30,7 @@ public class InventoryC extends InventoryCheck {
                         event.setCancelled(true);
                         player.onPacketCancel();
                     }
-                    player.getInventory().closeInventory();
+                    closeInventory();
                     alert("Placed a block while inventory is open");
                 }
             } else {

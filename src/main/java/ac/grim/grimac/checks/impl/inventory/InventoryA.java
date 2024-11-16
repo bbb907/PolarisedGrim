@@ -35,7 +35,7 @@ public class InventoryA extends InventoryCheck {
                         event.setCancelled(true);
                         player.onPacketCancel();
                     }
-                    player.getInventory().closeInventory();
+                    closeInventory();
                     alert("Attacked an entity while inventory is open");
                 }
             } else {

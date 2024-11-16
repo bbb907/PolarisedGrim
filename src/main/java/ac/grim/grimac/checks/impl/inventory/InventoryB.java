@@ -37,7 +37,7 @@ public class InventoryB extends InventoryCheck {
                         event.setCancelled(true);
                         player.onPacketCancel();
                     }
-                    player.getInventory().closeInventory();
+                    closeInventory();
                     alert("Started digging blocks while inventory is open");
                 }
             } else {
