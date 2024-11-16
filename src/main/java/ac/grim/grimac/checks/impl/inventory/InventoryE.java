@@ -28,6 +28,7 @@ public class InventoryE extends InventoryCheck {
                     if (shouldModifyPackets()) {
                         event.setCancelled(true);
                         player.onPacketCancel();
+                        player.getInventory().needResend = true;
                     }
                     closeInventory();
                 }
