@@ -34,7 +34,7 @@ public class InventoryB extends Check implements PacketCheck {
                         event.setCancelled(true);
                         player.onPacketCancel();
                     }
-                    FoliaCompatUtil.runTaskForEntity(player.bukkitPlayer, GrimAPI.INSTANCE.getPlugin(), () -> player.bukkitPlayer.closeInventory(), null, 0);
+                    player.getInventory().closeInventory();
                     alert("");
                 }
             } else {

@@ -8,6 +8,7 @@ import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
 import ac.grim.grimac.utils.data.VectorData;
 import ac.grim.grimac.utils.data.VectorData.MoveVectorData;
 import ac.grim.grimac.utils.data.VehicleData;
+import ac.grim.grimac.utils.latency.CompensatedInventory;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
@@ -17,13 +18,6 @@ import java.util.StringJoiner;
 
 @CheckData(name = "InventoryD", setback = 1, decay = 0.25)
 public class InventoryD extends Check implements PostPredictionCheck {
-
-    // Impossible transaction ID
-    private static final long NONE = Long.MAX_VALUE;
-
-    private long closeTransaction = NONE;
-    private int closePacketsToSkip;
-
     private int horseJumpVerbose;
 
     public InventoryD(GrimPlayer player) {
@@ -33,16 +27,20 @@ public class InventoryD extends Check implements PostPredictionCheck {
     @Override
     public void onPacketReceive(final PacketReceiveEvent event) {
         if (event.getPacketType() == PacketType.Play.Client.CLICK_WINDOW) {
+            final CompensatedInventory compensatedInventory = player.getInventory();
+
             // Disallow any clicks if inventory is closing
-            if (closeTransaction != NONE && shouldModifyPackets()) {
+            if (compensatedInventory.closeTransaction != CompensatedInventory.NONE && shouldModifyPackets()) {
                 event.setCancelled(true);
                 player.onPacketCancel();
                 player.getInventory().needResend = true;
             }
         } else if (event.getPacketType() == PacketType.Play.Client.CLOSE_WINDOW) {
+            final CompensatedInventory compensatedInventory = player.getInventory();
+
             // Players with high ping can close inventory faster than send transaction back
-            if (closeTransaction != NONE && closePacketsToSkip-- <= 0) {
-                closeTransaction = NONE;
+            if (compensatedInventory.closeTransaction != CompensatedInventory.NONE && compensatedInventory.closePacketsToSkip-- <= 0) {
+                compensatedInventory.closeTransaction = CompensatedInventory.NONE;
             }
         }
     }
@@ -97,7 +95,9 @@ public class InventoryD extends Check implements PostPredictionCheck {
     }
 
     public void closeInventory() {
-        if (closeTransaction != NONE) {
+        final CompensatedInventory compensatedInventory = player.getInventory();
+
+        if (compensatedInventory.closeTransaction != CompensatedInventory.NONE) {
             return;
         }
 
@@ -106,7 +106,7 @@ public class InventoryD extends Check implements PostPredictionCheck {
         player.user.writePacket(new WrapperPlayServerCloseWindow(windowId));
 
         // Force close inventory on server side
-        closePacketsToSkip = 1; // Sending close packet to itself, so skip it
+        compensatedInventory.closePacketsToSkip = 1; // Sending close packet to itself, so skip it
         PacketEvents.getAPI().getProtocolManager().receivePacket(
                 player.user.getChannel(), new WrapperPlayClientCloseWindow(windowId)
         );
@@ -114,10 +114,10 @@ public class InventoryD extends Check implements PostPredictionCheck {
         player.sendTransaction();
 
         int transaction = player.lastTransactionSent.get();
-        closeTransaction = transaction;
+        compensatedInventory.closeTransaction = transaction;
         player.latencyUtils.addRealTimeTask(transaction, () -> {
-            if (closeTransaction == transaction) {
-                closeTransaction = NONE;
+            if (compensatedInventory.closeTransaction == transaction) {
+                compensatedInventory.closeTransaction = CompensatedInventory.NONE;
             }
         });
 

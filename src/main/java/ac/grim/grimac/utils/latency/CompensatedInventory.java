@@ -23,6 +23,7 @@ import com.github.retrooper.packetevents.protocol.player.DiggingAction;
 import com.github.retrooper.packetevents.protocol.player.GameMode;
 import com.github.retrooper.packetevents.protocol.player.InteractionHand;
 import com.github.retrooper.packetevents.wrapper.play.client.*;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerCloseWindow;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerOpenHorseWindow;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerOpenWindow;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetSlot;
@@ -465,5 +466,37 @@ public class CompensatedInventory extends Check implements PacketCheck {
                 }
             });
         }
+    }
+
+    // Impossible transaction ID
+    public static final long NONE = Long.MAX_VALUE;
+    public long closeTransaction = NONE;
+    public int closePacketsToSkip;
+    public void closeInventory() {
+        if (closeTransaction != NONE) {
+            return;
+        }
+
+        int windowId = player.getInventory().openWindowID;
+
+        player.user.writePacket(new WrapperPlayServerCloseWindow(windowId));
+
+        // Force close inventory on server side
+        closePacketsToSkip = 1; // Sending close packet to itself, so skip it
+        PacketEvents.getAPI().getProtocolManager().receivePacket(
+                player.user.getChannel(), new WrapperPlayClientCloseWindow(windowId)
+        );
+
+        player.sendTransaction();
+
+        int transaction = player.lastTransactionSent.get();
+        closeTransaction = transaction;
+        player.latencyUtils.addRealTimeTask(transaction, () -> {
+            if (closeTransaction == transaction) {
+                closeTransaction = NONE;
+            }
+        });
+
+        player.user.flushPackets();
     }
 }
