@@ -29,7 +29,7 @@ public class PacketPlayerWindow extends PacketListenerAbstract {
             if (player == null) return;
 
             if (player.hasInventoryOpen && isDesynced(player)) {
-                player.hasInventoryOpen = false;
+                handleInventoryStatusChange(player, true);
             }
         }
 
@@ -41,7 +41,7 @@ public class PacketPlayerWindow extends PacketListenerAbstract {
                 GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
                 if (player == null) return;
 
-                player.hasInventoryOpen = true;
+                handleInventoryStatusChange(player, true);
             }
         }
 
@@ -56,11 +56,11 @@ public class PacketPlayerWindow extends PacketListenerAbstract {
             // This is a workaround to atleast make our inventory checks work "decently" in 1.8 clients for 1.9+ servers
             if (PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_9)
                     && player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_8)) {
-                player.hasInventoryOpen = true;
+                handleInventoryStatusChange(player, true);
             }
 
             if (player.getClientVersion().isNewerThan(ClientVersion.V_1_8)) {
-                player.hasInventoryOpen = true;
+                handleInventoryStatusChange(player, true);
             }
         }
 
@@ -68,7 +68,7 @@ public class PacketPlayerWindow extends PacketListenerAbstract {
             GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
             if (player == null) return;
 
-            player.hasInventoryOpen = false;
+            handleInventoryStatusChange(player, false);
         }
     }
 
@@ -81,7 +81,7 @@ public class PacketPlayerWindow extends PacketListenerAbstract {
             player.sendTransaction();
 
             player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(),
-                                                () -> player.hasInventoryOpen = false);
+                                                () -> handleInventoryStatusChange(player, false));
         } else if (event.getPacketType() == PacketType.Play.Server.OPEN_WINDOW) {
             WrapperPlayServerOpenWindow wrapper = new WrapperPlayServerOpenWindow(event);
 
@@ -94,7 +94,7 @@ public class PacketPlayerWindow extends PacketListenerAbstract {
             int modernType = wrapper.getType();
 
             player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(),
-                                                () -> player.hasInventoryOpen = !isAlwaysDesynced(player, legacyType, modernType));
+                                                () -> handleInventoryStatusChange(player, !isAlwaysDesynced(player, legacyType, modernType)));
         } else if (event.getPacketType() == PacketType.Play.Server.OPEN_HORSE_WINDOW) {
             GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
             if (player == null) return;
@@ -102,7 +102,7 @@ public class PacketPlayerWindow extends PacketListenerAbstract {
             player.sendTransaction();
 
             player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(),
-                                                () -> player.hasInventoryOpen = true);
+                                                () -> handleInventoryStatusChange(player, true));
         } else if (event.getPacketType() == PacketType.Play.Server.CLOSE_WINDOW) {
             GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
             if (player == null) return;
@@ -110,8 +110,16 @@ public class PacketPlayerWindow extends PacketListenerAbstract {
             player.sendTransaction();
 
             player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(),
-                                                () -> player.hasInventoryOpen = false);
+                                                () -> handleInventoryStatusChange(player, false));
         }
+    }
+
+    private void handleInventoryStatusChange(GrimPlayer player, boolean open) {
+        if (!player.hasInventoryOpen && open) {
+            player.lastInventoryOpen = System.currentTimeMillis();
+        }
+
+        player.hasInventoryOpen = open;
     }
 
     private boolean isAlwaysDesynced(GrimPlayer player, String legacyType, int modernType) {

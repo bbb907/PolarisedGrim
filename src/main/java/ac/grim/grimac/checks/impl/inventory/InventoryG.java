@@ -22,7 +22,7 @@ public class InventoryG extends InventoryCheck {
         super.onPacketReceive(event);
 
         if (event.getPacketType() == PacketType.Play.Client.ENTITY_ACTION) {
-            if (player.hasInventoryOpen) {
+            if (player.hasInventoryOpen && (System.currentTimeMillis() - player.lastInventoryOpen > 50L)) {
                 if (flagAndAlert("Sent a entity action packet while inventory is open")) {
                     closeInventory();
                 }
