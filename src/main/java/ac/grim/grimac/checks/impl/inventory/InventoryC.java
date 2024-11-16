@@ -28,7 +28,7 @@ public class InventoryC extends Check implements PacketCheck {
                         player.onPacketCancel();
                     }
                     player.getInventory().closeInventory();
-                    alert("");
+                    alert("Placed a block while inventory is open");
                 }
             } else {
                 reward();

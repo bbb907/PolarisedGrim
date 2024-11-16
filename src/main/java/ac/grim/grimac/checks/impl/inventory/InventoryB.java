@@ -35,7 +35,7 @@ public class InventoryB extends Check implements PacketCheck {
                         player.onPacketCancel();
                     }
                     player.getInventory().closeInventory();
-                    alert("");
+                    alert("Started digging blocks while inventory is open");
                 }
             } else {
                 reward();
