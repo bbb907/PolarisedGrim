@@ -3,10 +3,12 @@ package ac.grim.grimac.events.packets;
 import ac.grim.grimac.GrimAPI;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.data.packetentity.PacketEntitySelf;
+import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketListenerAbstract;
 import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
+import com.github.retrooper.packetevents.manager.server.ServerVersion;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientClientStatus;
@@ -47,6 +49,15 @@ public class PacketPlayerWindow extends PacketListenerAbstract {
         if (event.getPacketType() == PacketType.Play.Client.CLICK_WINDOW) {
             GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
             if (player == null) return;
+
+            // TODO: Remove this check after we finish the before ViaVersion injection
+            // Explanation: On 1.7 and 1.8 we have OPEN_INVENTORY_ACHIEVEMENT on CLIENT_STATUS packet
+            // but after Via translation this information gets lost
+            // This is a workaround to atleast make our inventory checks work "decently" in 1.8 clients for 1.9+ servers
+            if (PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_9)
+                    && player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_8)) {
+                player.hasInventoryOpen = true;
+            }
 
             if (player.getClientVersion().isNewerThan(ClientVersion.V_1_8)) {
                 player.hasInventoryOpen = true;
