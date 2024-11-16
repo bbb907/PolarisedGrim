@@ -9,7 +9,7 @@ import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientCloseWindow;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerCloseWindow;
 
-public class InventoryCheck extends Check implements PacketCheck, PostPredictionCheck {
+public class InventoryCheck extends BlockPlaceCheck implements PacketCheck {
     // Impossible transaction ID
     protected static final long NONE = Long.MAX_VALUE;
 

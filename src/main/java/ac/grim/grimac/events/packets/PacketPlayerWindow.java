@@ -28,7 +28,7 @@ public class PacketPlayerWindow extends PacketListenerAbstract {
             GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
             if (player == null) return;
 
-            if(player.hasInventoryOpen && isDesynced(player)) {
+            if (player.hasInventoryOpen && isDesynced(player)) {
                 player.hasInventoryOpen = false;
             }
         }

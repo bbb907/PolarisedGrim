@@ -19,7 +19,7 @@ public class InventoryF extends InventoryCheck {
     @Override
     public void onPacketReceive(PacketReceiveEvent event) {
         // Exempt on 1.9+ server version due to the Via hack done in PacketPlayerWindow, the exemption can be deleted
-        // once we are behind ViaVersion
+        // once we are ahead of ViaVersion
         if (PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_9)
                 || player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9)) return;
 
@@ -27,14 +27,13 @@ public class InventoryF extends InventoryCheck {
 
         if (event.getPacketType() == PacketType.Play.Client.CLICK_WINDOW) {
             if (!player.hasInventoryOpen) {
-                if (flag()) {
+                if (flagAndAlert("Sent a click window packet without a open inventory")) {
                     // Cancel the packet
                     if (shouldModifyPackets()) {
                         event.setCancelled(true);
                         player.onPacketCancel();
                     }
                     closeInventory();
-                    alert("Sent a click window packet without a open inventory");
                 }
             } else {
                 reward();

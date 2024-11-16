@@ -23,14 +23,8 @@ public class InventoryG extends InventoryCheck {
 
         if (event.getPacketType() == PacketType.Play.Client.ENTITY_ACTION) {
             if (player.hasInventoryOpen) {
-                if (flag()) {
-                    // Cancel the packet
-                    if (shouldModifyPackets()) {
-                        event.setCancelled(true);
-                        player.onPacketCancel();
-                    }
+                if (flagAndAlert("Sent a entity action packet while inventory is open")) {
                     closeInventory();
-                    alert("Sent a entity action packet while inventory is open");
                 }
             } else {
                 reward();

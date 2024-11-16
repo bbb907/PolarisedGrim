@@ -29,14 +29,13 @@ public class InventoryA extends InventoryCheck {
 
             // Is not possible to attack while the inventory is open.
             if (player.hasInventoryOpen) {
-                if (flag()) {
+                if (flagAndAlert("Attacked an entity while inventory is open")) {
                     // Cancel the packet
                     if (shouldModifyPackets()) {
                         event.setCancelled(true);
                         player.onPacketCancel();
                     }
                     closeInventory();
-                    alert("Attacked an entity while inventory is open");
                 }
             } else {
                 reward();

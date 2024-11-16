@@ -20,29 +20,21 @@ public class InventoryB extends InventoryCheck {
         super(player);
     }
 
-    @Override
-    public void onPacketReceive(PacketReceiveEvent event) {
-        super.onPacketReceive(event);
+    public void handle(PacketReceiveEvent event, WrapperPlayClientPlayerDigging wrapper) {
+        if (wrapper.getAction() != DiggingAction.START_DIGGING) return;
 
-        if (event.getPacketType() == PacketType.Play.Client.PLAYER_DIGGING) {
-            WrapperPlayClientPlayerDigging wrapper = new WrapperPlayClientPlayerDigging(event);
-
-            if (wrapper.getAction() != DiggingAction.START_DIGGING) return;
-
-            // Is not possible to start digging a block while the inventory is open.
-            if (player.hasInventoryOpen) {
-                if (flag()) {
-                    // Cancel the packet
-                    if (shouldModifyPackets()) {
-                        event.setCancelled(true);
-                        player.onPacketCancel();
-                    }
-                    closeInventory();
-                    alert("Started digging blocks while inventory is open");
+        // Is not possible to start digging a block while the inventory is open.
+        if (player.hasInventoryOpen) {
+            if (flagAndAlert("Started digging blocks while inventory is open")) {
+                // Cancel the packet
+                if (shouldModifyPackets()) {
+                    event.setCancelled(true);
+                    player.onPacketCancel();
                 }
-            } else {
-                reward();
+                closeInventory();
             }
+        } else {
+            reward();
         }
     }
 }

@@ -23,14 +23,13 @@ public class InventoryE extends InventoryCheck {
             // It is not possible to change hotbar slots with held item change while the inventory is open
             // A container click packet would be sent instead
             if (player.hasInventoryOpen) {
-                if (flag()) {
+                if (flagAndAlert("Sent a held item change packet while inventory is open")) {
                     // Cancel the packet
                     if (shouldModifyPackets()) {
                         event.setCancelled(true);
                         player.onPacketCancel();
                     }
                     closeInventory();
-                    alert("Sent a held item change packet while inventory is open");
                 }
             } else {
                 reward();

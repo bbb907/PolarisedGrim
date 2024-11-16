@@ -15,7 +15,7 @@ public class VectorData {
             this.x = x;
             this.z = z;
 
-            if(x != 0 || z != 0) {
+            if (x != 0 || z != 0) {
                 addVectorType(VectorType.WithInput);
             }
         }
@@ -25,7 +25,7 @@ public class VectorData {
             this.x = x;
             this.z = z;
 
-            if(x != 0 || z != 0) {
+            if (x != 0 || z != 0) {
                 addVectorType(VectorType.WithInput);
             }
         }
