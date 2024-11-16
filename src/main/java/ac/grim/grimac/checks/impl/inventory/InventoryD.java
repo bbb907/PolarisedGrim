@@ -79,7 +79,7 @@ public class InventoryD extends Check implements PostPredictionCheck {
             }
 
             if (flag()) {
-                closeInventory();
+                player.getInventory().closeInventory();
 
                 StringJoiner joiner = new StringJoiner(" ");
 
@@ -92,36 +92,6 @@ public class InventoryD extends Check implements PostPredictionCheck {
         } else {
             horseJumpVerbose = 0;
         }
-    }
-
-    public void closeInventory() {
-        final CompensatedInventory compensatedInventory = player.getInventory();
-
-        if (compensatedInventory.closeTransaction != CompensatedInventory.NONE) {
-            return;
-        }
-
-        int windowId = player.getInventory().openWindowID;
-
-        player.user.writePacket(new WrapperPlayServerCloseWindow(windowId));
-
-        // Force close inventory on server side
-        compensatedInventory.closePacketsToSkip = 1; // Sending close packet to itself, so skip it
-        PacketEvents.getAPI().getProtocolManager().receivePacket(
-                player.user.getChannel(), new WrapperPlayClientCloseWindow(windowId)
-        );
-
-        player.sendTransaction();
-
-        int transaction = player.lastTransactionSent.get();
-        compensatedInventory.closeTransaction = transaction;
-        player.latencyUtils.addRealTimeTask(transaction, () -> {
-            if (compensatedInventory.closeTransaction == transaction) {
-                compensatedInventory.closeTransaction = CompensatedInventory.NONE;
-            }
-        });
-
-        player.user.flushPackets();
     }
 
     private MoveVectorData findMovement(VectorData vectorData) {
