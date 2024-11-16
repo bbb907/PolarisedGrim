@@ -22,7 +22,7 @@ public class InventoryD extends Check implements PostPredictionCheck {
     private static final long NONE = Long.MAX_VALUE;
 
     private long closeTransaction = NONE;
-    private int сlosePacketsToSkip;
+    private int closePacketsToSkip;
 
     private int horseJumpVerbose;
 
@@ -34,14 +34,14 @@ public class InventoryD extends Check implements PostPredictionCheck {
     public void onPacketReceive(final PacketReceiveEvent event) {
         if (event.getPacketType() == PacketType.Play.Client.CLICK_WINDOW) {
             // Disallow any clicks if inventory is closing
-            if(closeTransaction != NONE && shouldModifyPackets()) {
+            if (closeTransaction != NONE && shouldModifyPackets()) {
                 event.setCancelled(true);
                 player.onPacketCancel();
                 player.getInventory().needResend = true;
             }
         } else if (event.getPacketType() == PacketType.Play.Client.CLOSE_WINDOW) {
             // Players with high ping can close inventory faster than send transaction back
-            if (closeTransaction != NONE && сlosePacketsToSkip-- <= 0) {
+            if (closeTransaction != NONE && closePacketsToSkip-- <= 0) {
                 closeTransaction = NONE;
             }
         }
@@ -53,7 +53,7 @@ public class InventoryD extends Check implements PostPredictionCheck {
                 predictionComplete.getData().isTeleport() ||
                 player.getSetbackTeleportUtil().blockOffsets ||
                 player.packetStateData.lastPacketWasTeleport ||
-                player.packetStateData.slowedByUsingItem ||
+                player.packetStateData.isSlowedByUsingItem() ||
                 System.currentTimeMillis() - player.lastBlockPlaceUseItem < 50L) {
             return;
         }
@@ -97,7 +97,7 @@ public class InventoryD extends Check implements PostPredictionCheck {
     }
 
     public void closeInventory() {
-        if(closeTransaction != NONE) {
+        if (closeTransaction != NONE) {
             return;
         }
 
@@ -106,9 +106,9 @@ public class InventoryD extends Check implements PostPredictionCheck {
         player.user.writePacket(new WrapperPlayServerCloseWindow(windowId));
 
         // Force close inventory on server side
-        сlosePacketsToSkip = 1; // Sending close packet to itself, so skip it
+        closePacketsToSkip = 1; // Sending close packet to itself, so skip it
         PacketEvents.getAPI().getProtocolManager().receivePacket(
-           player.user.getChannel(), new WrapperPlayClientCloseWindow(windowId)
+                player.user.getChannel(), new WrapperPlayClientCloseWindow(windowId)
         );
 
         player.sendTransaction();
