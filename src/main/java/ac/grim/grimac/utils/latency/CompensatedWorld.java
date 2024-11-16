@@ -1,7 +1,6 @@
 package ac.grim.grimac.utils.latency;
 
 import ac.grim.grimac.GrimAPI;
-import ac.grim.grimac.manager.init.start.ViaBackwardsManager;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.chunks.Column;
 import ac.grim.grimac.utils.collisions.CollisionData;
@@ -20,7 +19,6 @@ import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.manager.server.ServerVersion;
 import com.github.retrooper.packetevents.netty.channel.ChannelHelper;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
-import com.github.retrooper.packetevents.protocol.nbt.NBTCompound;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 import com.github.retrooper.packetevents.protocol.player.DiggingAction;
 import com.github.retrooper.packetevents.protocol.player.User;
@@ -32,6 +30,7 @@ import com.github.retrooper.packetevents.protocol.world.chunk.palette.DataPalett
 import com.github.retrooper.packetevents.protocol.world.chunk.palette.ListPalette;
 import com.github.retrooper.packetevents.protocol.world.chunk.palette.PaletteType;
 import com.github.retrooper.packetevents.protocol.world.chunk.storage.LegacyFlexibleStorage;
+import com.github.retrooper.packetevents.protocol.world.dimension.DimensionType;
 import com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState;
 import com.github.retrooper.packetevents.protocol.world.states.defaulttags.BlockTags;
 import com.github.retrooper.packetevents.protocol.world.states.enums.*;
@@ -201,7 +200,7 @@ public class CompensatedWorld {
 
     public boolean isNearHardEntity(SimpleCollisionBox playerBox) {
         for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
-            if ((EntityTypes.isTypeInstanceOf(entity.type, EntityTypes.BOAT) || entity.type == EntityTypes.SHULKER) && player.compensatedEntities.getSelf().getRiding() != entity) {
+            if ((entity.isBoat() || entity.getType() == EntityTypes.SHULKER) && player.compensatedEntities.getSelf().getRiding() != entity) {
                 SimpleCollisionBox box = entity.getPossibleCollisionBoxes();
                 if (box.isIntersected(playerBox)) {
                     return true;
@@ -292,9 +291,9 @@ public class CompensatedWorld {
     }
 
     public void tickOpenable(int blockX, int blockY, int blockZ) {
-        WrappedBlockState data = player.compensatedWorld.getWrappedBlockStateAt(blockX, blockY, blockZ);
-
-        if (BlockTags.WOODEN_DOORS.contains(data.getType()) || (player.getClientVersion().isOlderThan(ClientVersion.V_1_8) && data.getType() == StateTypes.IRON_DOOR)) {
+        final WrappedBlockState data = player.compensatedWorld.getWrappedBlockStateAt(blockX, blockY, blockZ);
+        final StateType type = data.getType();
+        if (BlockTags.WOODEN_DOORS.contains(type) || (player.getClientVersion().isOlderThan(ClientVersion.V_1_8) && type == StateTypes.IRON_DOOR)) {
             WrappedBlockState otherDoor = player.compensatedWorld.getWrappedBlockStateAt(blockX,
                     blockY + (data.getHalf() == Half.LOWER ? 1 : -1), blockZ);
 
@@ -316,12 +315,13 @@ public class CompensatedWorld {
                     player.compensatedWorld.updateBlock(blockX, blockY - 1, blockZ, otherDoor.getGlobalId());
                 }
             }
-        } else if (BlockTags.WOODEN_TRAPDOORS.contains(data.getType()) || BlockTags.FENCE_GATES.contains(data.getType())
-                || (player.getClientVersion().isOlderThan(ClientVersion.V_1_8) && data.getType() == StateTypes.IRON_TRAPDOOR)) {
+        } else if ((player.getClientVersion().isOlderThan(ClientVersion.V_1_8) || type != StateTypes.IRON_TRAPDOOR) // 1.7 can open iron trapdoors.
+                    && BlockTags.TRAPDOORS.contains(type)
+                    || BlockTags.FENCE_GATES.contains(type)) {
             // Take 12 most significant bytes -> the material ID.  Combine them with the new block magic data.
             data.setOpen(!data.isOpen());
             player.compensatedWorld.updateBlock(blockX, blockY, blockZ, data.getGlobalId());
-        } else if (BlockTags.BUTTONS.contains(data.getType())) {
+        } else if (BlockTags.BUTTONS.contains(type)) {
             data.setPowered(true);
         }
     }
@@ -331,7 +331,7 @@ public class CompensatedWorld {
         // Occurs on player login
         if (player.boundingBox == null) return;
 
-        SimpleCollisionBox expandedBB = GetBoundingBox.getBoundingBoxFromPosAndSize(player.lastX, player.lastY, player.lastZ, 0.001f, 0.001f);
+        SimpleCollisionBox expandedBB = GetBoundingBox.getBoundingBoxFromPosAndSize(player, player.lastX, player.lastY, player.lastZ, 0.001f, 0.001f);
         expandedBB.expandToAbsoluteCoordinates(player.x, player.y, player.z);
         SimpleCollisionBox playerBox = expandedBB.copy().expand(1);
 
@@ -396,9 +396,18 @@ public class CompensatedWorld {
         player.uncertaintyHandler.pistonY.add(modY);
         player.uncertaintyHandler.pistonZ.add(modZ);
 
+        removeInvalidPistonLikeStuff(0);
+    }
+
+    public void removeInvalidPistonLikeStuff(int transactionId) {
         // Tick the pistons and remove them if they can no longer exist
-        activePistons.removeIf(PistonData::tickIfGuaranteedFinished);
-        openShulkerBoxes.removeIf(ShulkerData::tickIfGuaranteedFinished);
+        if (transactionId != 0) {
+            activePistons.removeIf(data -> data.lastTransactionSent < transactionId);
+            openShulkerBoxes.removeIf(data -> data.isClosing && data.lastTransactionSent < transactionId);
+        } else {
+            activePistons.removeIf(PistonData::tickIfGuaranteedFinished);
+            openShulkerBoxes.removeIf(ShulkerData::tickIfGuaranteedFinished);
+        }
         // Remove if a shulker is not in this block position anymore
         openShulkerBoxes.removeIf(box -> {
             if (box.blockPos != null) { // Block is no longer valid
@@ -493,7 +502,7 @@ public class CompensatedWorld {
         } else if (state.getType() == StateTypes.OBSERVER) {
             return state.getFacing() == face && state.isPowered() ? 15 : 0;
         } else if (state.getType() == StateTypes.REPEATER) {
-            return state.getFacing() == face && state.isPowered() ? state.getPower() : 0;
+            return state.getFacing() == face && state.isPowered() ? 15 : 0;
         } else if (state.getType() == StateTypes.LECTERN) {
             return state.isPowered() ? 15 : 0;
         } else if (state.getType() == StateTypes.TARGET) {
@@ -521,7 +530,7 @@ public class CompensatedWorld {
         } else if (state.getType() == StateTypes.OBSERVER) {
             return state.getFacing() == face && state.isPowered() ? 15 : 0;
         } else if (state.getType() == StateTypes.REPEATER) {
-            return state.getFacing() == face && state.isPowered() ? state.getPower() : 0;
+            return state.getFacing() == face && state.isPowered() ? 15 : 0;
         } else if (state.getType() == StateTypes.REDSTONE_WIRE) {
             BlockFace needed = face.getOppositeFace();
 
@@ -598,7 +607,7 @@ public class CompensatedWorld {
     }
 
     public boolean containsLiquid(SimpleCollisionBox var0) {
-        return Collisions.hasMaterial(player, var0, data -> Materials.isWater(player.getClientVersion(), data.getFirst()) || data.getFirst().getType() == StateTypes.LAVA);
+        return Collisions.hasMaterial(player, var0, data -> Materials.isWater(player.getClientVersion(), data.first()) || data.first().getType() == StateTypes.LAVA);
     }
 
     public double getLavaFluidLevelAt(int x, int y, int z) {
@@ -620,7 +629,7 @@ public class CompensatedWorld {
     }
 
     public boolean containsLava(SimpleCollisionBox var0) {
-        return Collisions.hasMaterial(player, var0, data -> data.getFirst().getType() == StateTypes.LAVA);
+        return Collisions.hasMaterial(player, var0, data -> data.first().getType() == StateTypes.LAVA);
     }
 
     public double getWaterFluidLevelAt(double x, double y, double z) {
@@ -662,13 +671,12 @@ public class CompensatedWorld {
         return minHeight;
     }
 
-    public void setDimension(String dimension, User user) {
+    public void setDimension(DimensionType dimension, User user) {
         // No world height NBT
         if (PacketEvents.getAPI().getServerManager().getVersion().isOlderThan(ServerVersion.V_1_17)) return;
 
-        NBTCompound dimensionNBT = user.getWorldNBT(dimension).getCompoundTagOrNull("element");
-        minHeight = dimensionNBT.getNumberTagOrThrow("min_y").getAsInt();
-        maxHeight = minHeight + dimensionNBT.getNumberTagOrThrow("height").getAsInt();
+        minHeight = dimension.getMinY();
+        maxHeight = minHeight + dimension.getHeight();
     }
 
     public int getMaxHeight() {

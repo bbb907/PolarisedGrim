@@ -1,8 +1,12 @@
 package ac.grim.grimac.utils.collisions.datatypes;
 
 import ac.grim.grimac.utils.nmsutil.Ray;
+import com.github.retrooper.packetevents.protocol.world.BlockFace;
 import com.github.retrooper.packetevents.util.Vector3d;
 import com.github.retrooper.packetevents.util.Vector3i;
+import it.unimi.dsi.fastutil.doubles.AbstractDoubleList;
+import it.unimi.dsi.fastutil.doubles.DoubleArrayList;
+import it.unimi.dsi.fastutil.doubles.DoubleList;
 import org.bukkit.Location;
 import org.bukkit.util.Vector;
 
@@ -10,14 +14,27 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class SimpleCollisionBox implements CollisionBox {
+
     public static final double COLLISION_EPSILON = 1.0E-7;
+
     public double minX, minY, minZ, maxX, maxY, maxZ;
-    boolean isFullBlock = false;
+    private boolean isFullBlock = false;
 
     public SimpleCollisionBox() {
         this(0, 0, 0, 0, 0, 0, false);
     }
 
+    /**
+     * Creates a box defined by two points in 3d space; used to represent hitboxes and collision boxes.
+     * If your min/max values are > 1 you should probably check out {@link HexCollisionBox}
+     * @param minX x position of first corner
+     * @param minY y position of first corner
+     * @param minZ z position of first corner
+     * @param maxX x position of second corner
+     * @param maxY y position of second corner
+     * @param maxZ z position of second corner
+     * @param fullBlock - whether on not the box is a perfect 1x1x1 sized block
+     */
     public SimpleCollisionBox(double minX, double minY, double minZ, double maxX, double maxY, double maxZ, boolean fullBlock) {
         this.minX = minX;
         this.maxX = maxX;
@@ -41,7 +58,17 @@ public class SimpleCollisionBox implements CollisionBox {
         this(minX, minY, minZ, minX + 1, minY + 1, minZ + 1, true);
     }
 
-    // Use only if you don't know the fullBlock status, which is rare
+    /**
+     * Creates a box defined by two points in 3d space; used to represent hitboxes and collision boxes.
+     * If your min/max values are > 1 you should probably check out {@link HexCollisionBox}
+     * Use only if you don't know the fullBlock status, which is rare
+     * @param minX x position of first corner
+     * @param minY y position of first corner
+     * @param minZ z position of first corner
+     * @param maxX x position of second corner
+     * @param maxY y position of second corner
+     * @param maxZ z position of second corner
+     */
     public SimpleCollisionBox(double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
         this.minX = minX;
         this.maxX = maxX;
@@ -134,6 +161,17 @@ public class SimpleCollisionBox implements CollisionBox {
         vectors[6] = new Vector(maxX, maxY, minZ);
         vectors[7] = new Vector(maxX, maxY, maxZ);
         return vectors;
+    }
+
+    @Override
+    public CollisionBox union(SimpleCollisionBox other) {
+        this.minX = Math.min(this.minX, other.minX);
+        this.minY = Math.min(this.minY, other.minY);
+        this.minZ = Math.min(this.minZ, other.minZ);
+        this.maxX = Math.max(this.maxX, other.maxX);
+        this.maxY = Math.max(this.maxY, other.maxY);
+        this.maxZ = Math.max(this.maxZ, other.maxZ);
+        return this;
     }
 
     public SimpleCollisionBox expandToAbsoluteCoordinates(double x, double y, double z) {
@@ -238,6 +276,23 @@ public class SimpleCollisionBox implements CollisionBox {
     @Override
     public boolean isFullBlock() {
         return isFullBlock;
+    }
+
+    @Override
+    public boolean isSideFullBlock(BlockFace axis) {
+        if (isFullBlock) {
+            return true;
+        }
+
+        // Get the direction of block we are trying to connect to -> towards the block that is trying to connect
+        final BlockFace faceToSourceConnector = axis.getOppositeFace();
+        return switch (faceToSourceConnector) {
+            case EAST, WEST -> this.minX == 0 && this.maxX == 1;
+            case UP, DOWN -> this.minY == 0 && this.maxY == 1;
+            case NORTH, SOUTH -> this.minZ == 0 && this.maxZ == 1;
+            default -> false;
+        };
+
     }
 
     public boolean isFullBlockNoCache() {
@@ -399,6 +454,55 @@ public class SimpleCollisionBox implements CollisionBox {
 
     public Vector min() {
         return new Vector(minX, minY, minZ);
+    }
+
+    public DoubleList getYPointPositions() {
+        return create(minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    private DoubleList create(double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
+        if (!(maxX - minX < 1.0E-7) && !(maxY - minY < 1.0E-7) && !(maxZ - minZ < 1.0E-7)) {
+            int i = findBits(minX, maxX);
+            int j = findBits(minY, maxY);
+            int k = findBits(minZ, maxZ);
+            if (i < 0 || j < 0 || k < 0) {
+                return DoubleArrayList.wrap(new double[]{minY, maxY});
+            } else if (i == 0 && j == 0 && k == 0) {
+                return DoubleArrayList.wrap(new double[]{0, 1});
+            } else {
+                int m = 1 << j;
+
+                return new AbstractDoubleList() {
+                    @Override
+                    public double getDouble(int index) {
+                        return (double) index / (double) m;
+                    }
+
+                    @Override
+                    public int size() {
+                        return m + 1;
+                    }
+                };
+            }
+        } else {
+            return DoubleArrayList.of();
+        }
+    }
+
+    private int findBits(double min, double max) {
+        if (!(min < -COLLISION_EPSILON) && !(max > 1.0000001)) {
+            for (int i = 0; i <= 3; i++) {
+                int j = 1 << i;
+                double d = min * (double)j;
+                double e = max * (double)j;
+                boolean bl = Math.abs(d - (double)Math.round(d)) < COLLISION_EPSILON * (double)j;
+                boolean bl2 = Math.abs(e - (double)Math.round(e)) < COLLISION_EPSILON * (double)j;
+                if (bl && bl2) {
+                    return i;
+                }
+            }
+        }
+        return -1;
     }
 
     @Override

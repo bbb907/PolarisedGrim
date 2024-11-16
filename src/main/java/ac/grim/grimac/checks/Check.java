@@ -1,17 +1,21 @@
 package ac.grim.grimac.checks;
 
-import ac.grim.grimac.AbstractCheck;
 import ac.grim.grimac.GrimAPI;
-import ac.grim.grimac.events.FlagEvent;
+import ac.grim.grimac.api.AbstractCheck;
+import ac.grim.grimac.api.config.ConfigManager;
+import ac.grim.grimac.api.events.FlagEvent;
 import ac.grim.grimac.player.GrimPlayer;
-import github.scarsz.configuralize.DynamicConfig;
+import ac.grim.grimac.utils.common.ConfigReloadObserver;
+import com.github.retrooper.packetevents.protocol.packettype.PacketType;
+import com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon;
+import io.github.retrooper.packetevents.util.folia.FoliaScheduler;
 import lombok.Getter;
 import lombok.Setter;
 import org.bukkit.Bukkit;
 
 // Class from https://github.com/Tecnio/AntiCheatBase/blob/master/src/main/java/me/tecnio/anticheat/check/Check.java
 @Getter
-public class Check implements AbstractCheck {
+public class Check implements AbstractCheck, ConfigReloadObserver {
     protected final GrimPlayer player;
 
     public double violations;
@@ -21,10 +25,18 @@ public class Check implements AbstractCheck {
     private String checkName;
     private String configName;
     private String alternativeName;
+    private String displayName;
+    private String description;
 
     private boolean experimental;
     @Setter
     private boolean isEnabled;
+    private boolean exempted;
+
+    @Override
+    public boolean isExperimental() {
+        return experimental;
+    }
 
     public Check(final GrimPlayer player) {
         this.player = player;
@@ -41,13 +53,22 @@ public class Check implements AbstractCheck {
             this.setbackVL = checkData.setback();
             this.alternativeName = checkData.alternativeName();
             this.experimental = checkData.experimental();
+            this.description = checkData.description();
+            this.displayName = this.checkName;
         }
-
+        //
         reload();
     }
 
     public boolean shouldModifyPackets() {
-        return isEnabled && !player.disableGrim && !player.noModifyPacketPermission;
+        return isEnabled && !player.disableGrim && !player.noModifyPacketPermission && !exempted;
+    }
+
+    public void updateExempted() {
+        if (player.bukkitPlayer == null || checkName == null) return;
+        FoliaScheduler.getEntityScheduler().run(player.bukkitPlayer, GrimAPI.INSTANCE.getPlugin(),
+                t -> exempted = player.bukkitPlayer.hasPermission("grim.exempt." + checkName.toLowerCase()),
+                () -> {});
     }
 
     public final boolean flagAndAlert(String verbose) {
@@ -63,7 +84,7 @@ public class Check implements AbstractCheck {
     }
 
     public final boolean flag() {
-        if (player.disableGrim || (experimental && !GrimAPI.INSTANCE.getConfigManager().isExperimentalChecks()))
+        if (player.disableGrim || (experimental && !player.isExperimentalChecks()) || exempted)
             return false; // Avoid calling event if disabled
 
         FlagEvent event = new FlagEvent(player, this);
@@ -89,19 +110,24 @@ public class Check implements AbstractCheck {
         violations = Math.max(0, violations - decay);
     }
 
-    public void reload() {
-        decay = getConfig().getDoubleElse(configName + ".decay", decay);
-        setbackVL = getConfig().getDoubleElse(configName + ".setbackvl", setbackVL);
+    @Override
+    public void reload(ConfigManager configuration) {
+        decay = configuration.getDoubleElse(configName + ".decay", decay);
+        setbackVL = configuration.getDoubleElse(configName + ".setbackvl", setbackVL);
+        displayName = configuration.getStringElse(configName + ".displayname", checkName);
 
         if (setbackVL == -1) setbackVL = Double.MAX_VALUE;
+        updateExempted();
+        onReload(configuration);
+    }
+
+    @Override
+    public void onReload(ConfigManager config) {
+
     }
 
     public boolean alert(String verbose) {
         return player.punishmentManager.handleAlert(player, verbose, this);
-    }
-
-    public DynamicConfig getConfig() {
-        return GrimAPI.INSTANCE.getConfigManager().getConfig();
     }
 
     public boolean setbackIfAboveSetbackVL() {
@@ -111,8 +137,22 @@ public class Check implements AbstractCheck {
         return false;
     }
 
+    public boolean isAboveSetbackVl() {
+        return getViolations() > setbackVL;
+    }
+
     public String formatOffset(double offset) {
         return offset > 0.001 ? String.format("%.5f", offset) : String.format("%.2E", offset);
     }
-}
 
+    public boolean isTransaction(PacketTypeCommon packetType) {
+        return packetType == PacketType.Play.Client.PONG ||
+                packetType == PacketType.Play.Client.WINDOW_CONFIRMATION;
+    }
+
+    @Override
+    public void reload() {
+        reload(GrimAPI.INSTANCE.getConfigManager().getConfig());
+    }
+
+}

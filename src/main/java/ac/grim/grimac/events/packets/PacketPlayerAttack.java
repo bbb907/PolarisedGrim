@@ -1,12 +1,15 @@
 package ac.grim.grimac.events.packets;
 
 import ac.grim.grimac.GrimAPI;
+import ac.grim.grimac.checks.impl.badpackets.BadPacketsW;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.data.packetentity.PacketEntity;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketListenerAbstract;
 import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
+import com.github.retrooper.packetevents.manager.server.ServerVersion;
+import com.github.retrooper.packetevents.protocol.attribute.Attributes;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
 import com.github.retrooper.packetevents.protocol.item.ItemStack;
 import com.github.retrooper.packetevents.protocol.item.enchantment.type.EnchantmentTypes;
@@ -15,7 +18,8 @@ import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientInteractEntity;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerFlying;
-import org.bukkit.entity.LivingEntity;
+
+import static ac.grim.grimac.utils.inventory.Inventory.HOTBAR_OFFSET;
 
 public class PacketPlayerAttack extends PacketListenerAbstract {
 
@@ -31,17 +35,28 @@ public class PacketPlayerAttack extends PacketListenerAbstract {
 
             if (player == null) return;
 
+            // The entity does not exist
+            if (!player.compensatedEntities.entityMap.containsKey(interact.getEntityId()) && !player.compensatedEntities.serverPositionsMap.containsKey(interact.getEntityId())) {
+                if (player.checkManager.getPacketCheck(BadPacketsW.class).flagAndAlert("entityId=" + interact.getEntityId()) && player.checkManager.getPacketCheck(BadPacketsW.class).shouldModifyPackets()) {
+                    event.setCancelled(true);
+                    player.onPacketCancel();
+                }
+                return;
+            }
+
             if (interact.getAction() == WrapperPlayClientInteractEntity.InteractAction.ATTACK) {
                 ItemStack heldItem = player.getInventory().getHeldItem();
                 PacketEntity entity = player.compensatedEntities.getEntity(interact.getEntityId());
 
                 // You don't get a release use item with block hitting with a sword?
-                if (heldItem != null && player.getClientVersion().isOlderThan(ClientVersion.V_1_9)) {
-                    if (heldItem.getType().hasAttribute(ItemTypes.ItemAttribute.SWORD))
-                        player.packetStateData.slowedByUsingItem = false;
+                if (player.getClientVersion().isOlderThan(ClientVersion.V_1_9) && player.packetStateData.isSlowedByUsingItem()) {
+                    ItemStack item = player.getInventory().inventory.getPlayerInventoryItem(player.packetStateData.getSlowedByUsingItemSlot() + HOTBAR_OFFSET);
+                    if (item.getType().hasAttribute(ItemTypes.ItemAttribute.SWORD)) {
+                        player.packetStateData.setSlowedByUsingItem(false);
+                    }
                 }
 
-                if (entity != null && (!(entity.type instanceof LivingEntity) || entity.type == EntityTypes.PLAYER)) {
+                if (entity != null && (!(entity.isLivingEntity()) || entity.getType() == EntityTypes.PLAYER)) {
                     boolean hasKnockbackSword = heldItem != null && heldItem.getEnchantmentLevel(EnchantmentTypes.KNOCKBACK, PacketEvents.getAPI().getServerManager().getVersion().toClientVersion()) > 0;
                     boolean isLegacyPlayer = player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_8);
                     boolean hasNegativeKB = heldItem != null && heldItem.getEnchantmentLevel(EnchantmentTypes.KNOCKBACK, PacketEvents.getAPI().getServerManager().getVersion().toClientVersion()) < 0;
@@ -59,6 +74,13 @@ public class PacketPlayerAttack extends PacketListenerAbstract {
                             player.maxPlayerAttackSlow = 1;
                         }
                     } else if (!isLegacyPlayer && player.isSprinting) {
+                        // 1.9+ players who have attack speed cannot slow themselves twice in one tick because their attack cooldown gets reset on swing.
+                        if (player.maxPlayerAttackSlow > 0
+                                && PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_9)
+                                && player.compensatedEntities.getSelf().getAttributeValue(Attributes.GENERIC_ATTACK_SPEED) < 16) { // 16 is a reasonable limit
+                            return;
+                        }
+
                         // 1.9+ player who might have been slowed, but we can't be sure
                         player.maxPlayerAttackSlow += 1;
                     }

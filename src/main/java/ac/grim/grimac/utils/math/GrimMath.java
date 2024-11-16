@@ -53,18 +53,18 @@ public class GrimMath {
         return (int) Math.ceil(d);
     }
 
-    public static double clamp(double d, double d2, double d3) {
-        if (d < d2) {
-            return d2;
+    public static double clamp(double num, double min, double max) {
+        if (num < min) {
+            return min;
         }
-        return Math.min(d, d3);
+        return Math.min(num, max);
     }
 
-    public static float clampFloat(float d, float d2, float d3) {
-        if (d < d2) {
-            return d2;
+    public static float clampFloat(float num, float min, float max) {
+        if (num < min) {
+            return min;
         }
-        return Math.min(d, d3);
+        return Math.min(num, max);
     }
 
     public static double lerp(double lerpAmount, double start, double end) {
@@ -104,5 +104,11 @@ public class GrimMath {
 
     public static boolean isNearlySame(double a, double b, double epoch) {
         return Math.abs(a-b) < epoch;
+    }
+
+    public static long hashCode(double x, int y, double z) {
+        long l = (long)(x * 3129871) ^ (long)z * 116129781L ^ (long)y;
+        l = l * l * 42317861L + l * 11L;
+        return l >> 16;
     }
 }

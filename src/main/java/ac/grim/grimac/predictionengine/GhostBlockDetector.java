@@ -6,7 +6,6 @@ import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.grim.grimac.utils.data.packetentity.PacketEntity;
-import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 
 public class GhostBlockDetector extends Check implements PostPredictionCheck {
@@ -53,7 +52,7 @@ public class GhostBlockDetector extends Check implements PostPredictionCheck {
             SimpleCollisionBox largeExpandedBB = player.boundingBox.copy().expand(12, 0.5, 12);
 
             for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
-                if (EntityTypes.isTypeInstanceOf(entity.type, EntityTypes.BOAT)) {
+                if (entity.isBoat()) {
                     if (entity.getPossibleCollisionBoxes().isIntersected(largeExpandedBB)) {
                         return true;
                     }

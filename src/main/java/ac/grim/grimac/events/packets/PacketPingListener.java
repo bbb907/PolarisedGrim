@@ -1,8 +1,7 @@
 package ac.grim.grimac.events.packets;
 
 import ac.grim.grimac.GrimAPI;
-import ac.grim.grimac.checks.Check;
-import ac.grim.grimac.checks.impl.misc.TransactionOrder;
+import ac.grim.grimac.checks.impl.badpackets.BadPacketsS;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.data.Pair;
 import com.github.retrooper.packetevents.event.PacketListenerAbstract;
@@ -29,13 +28,21 @@ public class PacketPingListener extends PacketListenerAbstract {
             WrapperPlayClientWindowConfirmation transaction = new WrapperPlayClientWindowConfirmation(event);
             short id = transaction.getActionId();
 
+            GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
+            if (player == null) return;
+            player.packetStateData.lastTransactionPacketWasValid = false;
+
             // Vanilla always uses an ID starting from 1
             if (id <= 0) {
-                GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
-                if (player == null) return;
-
+                // check if accepted
+                if (!transaction.isAccepted()) {
+                    player.checkManager.getPacketCheck(BadPacketsS.class).flagAndAlert();
+                    event.setCancelled(true);
+                    return;
+                }
                 // Check if we sent this packet before cancelling it
                 if (player.addTransactionResponse(id)) {
+                    player.packetStateData.lastTransactionPacketWasValid = true;
                     event.setCancelled(true);
                 }
             }
@@ -43,15 +50,17 @@ public class PacketPingListener extends PacketListenerAbstract {
 
         if (event.getPacketType() == PacketType.Play.Client.PONG) {
             WrapperPlayClientPong pong = new WrapperPlayClientPong(event);
+            GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
+            if (player == null) return;
+            player.packetStateData.lastTransactionPacketWasValid = false;
 
             int id = pong.getId();
             // If it wasn't below 0, it wasn't us
             // If it wasn't in short range, it wasn't us either
             if (id == (short) id) {
-                GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
-                if (player == null) return;
                 short shortID = ((short) id);
                 if (player.addTransactionResponse(shortID)) {
+                    player.packetStateData.lastTransactionPacketWasValid = true;
                     // Not needed for vanilla as vanilla ignores this packet, needed for packet limiters
                     event.setCancelled(true);
                 }
@@ -64,13 +73,14 @@ public class PacketPingListener extends PacketListenerAbstract {
         if (event.getPacketType() == PacketType.Play.Server.WINDOW_CONFIRMATION) {
             WrapperPlayServerWindowConfirmation confirmation = new WrapperPlayServerWindowConfirmation(event);
             short id = confirmation.getActionId();
-
+            //
+            GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
+            if (player == null) return;
+            player.packetStateData.lastServerTransWasValid = false;
             // Vanilla always uses an ID starting from 1
             if (id <= 0) {
-                GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
-                if (player == null) return;
-
-                if (player.didWeSendThatTrans.remove((Short) id)) {
+                if (player.didWeSendThatTrans.remove(id)) {
+                    player.packetStateData.lastServerTransWasValid = true;
                     player.transactionsSent.add(new Pair<>(id, System.nanoTime()));
                     player.lastTransactionSent.getAndIncrement();
                 }
@@ -79,15 +89,17 @@ public class PacketPingListener extends PacketListenerAbstract {
 
         if (event.getPacketType() == PacketType.Play.Server.PING) {
             WrapperPlayServerPing pong = new WrapperPlayServerPing(event);
-
             int id = pong.getId();
+            //
+            GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
+            if (player == null) return;
+            player.packetStateData.lastServerTransWasValid = false;
             // Check if in the short range, we only use short range
             if (id == (short) id) {
-                GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
-                if (player == null) return;
                 // Cast ID twice so we can use the list
                 Short shortID = ((short) id);
                 if (player.didWeSendThatTrans.remove(shortID)) {
+                    player.packetStateData.lastServerTransWasValid = true;
                     player.transactionsSent.add(new Pair<>(shortID, System.nanoTime()));
                     player.lastTransactionSent.getAndIncrement();
                 }

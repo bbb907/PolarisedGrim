@@ -10,12 +10,20 @@ import ac.grim.grimac.utils.data.packetentity.PacketEntity;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityStrider;
 import ac.grim.grimac.utils.math.GrimMath;
 import ac.grim.grimac.utils.nmsutil.*;
+import com.github.retrooper.packetevents.protocol.attribute.Attributes;
+import ac.grim.grimac.utils.team.EntityPredicates;
+import ac.grim.grimac.utils.team.TeamHandler;
+import com.github.retrooper.packetevents.PacketEvents;
+import com.github.retrooper.packetevents.manager.server.ServerVersion;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
+import com.github.retrooper.packetevents.protocol.potion.PotionTypes;
 import com.github.retrooper.packetevents.protocol.world.states.defaulttags.BlockTags;
 import com.github.retrooper.packetevents.protocol.world.states.type.StateType;
 import com.github.retrooper.packetevents.protocol.world.states.type.StateTypes;
 import com.github.retrooper.packetevents.util.Vector3d;
+import com.viaversion.viaversion.api.Via;
+import io.github.retrooper.packetevents.util.viaversion.ViaVersionUtil;
 import org.bukkit.util.Vector;
 
 public class MovementTicker {
@@ -27,38 +35,46 @@ public class MovementTicker {
 
     public static void handleEntityCollisions(GrimPlayer player) {
         // 1.7 and 1.8 do not have player collision
-        if (player.getClientVersion().isNewerThan(ClientVersion.V_1_8)) {
-            int possibleCollidingEntities = 0;
+        if (player.getClientVersion().isOlderThan(ClientVersion.V_1_9)
+                // Check that ViaVersion disables all collisions on a 1.8 server for 1.9+ clients
+                || (PacketEvents.getAPI().getServerManager().getVersion().isOlderThan(ServerVersion.V_1_9)
+                    && (!ViaVersionUtil.isAvailable() || Via.getConfig().isPreventCollision()))) return;
 
-            // Players in vehicles do not have collisions
-            if (!player.compensatedEntities.getSelf().inVehicle()) {
-                // Calculate the offset of the player to colliding other stuff
-                SimpleCollisionBox playerBox = GetBoundingBox.getBoundingBoxFromPosAndSize(player.lastX, player.lastY, player.lastZ, 0.6f, 1.8f);
-                SimpleCollisionBox expandedPlayerBox = playerBox.copy().expandToAbsoluteCoordinates(player.x, player.y, player.z).expand(1);
+        int possibleCollidingEntities = 0;
 
-                for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
-                    // Players can only push living entities
-                    // Players can also push boats or minecarts
-                    // The one exemption to a living entity is an armor stand
-                    if (!entity.isLivingEntity() && !EntityTypes.isTypeInstanceOf(entity.type, EntityTypes.BOAT) && !entity.isMinecart() || entity.type == EntityTypes.ARMOR_STAND)
-                        continue;
+        // Players in vehicles do not have collisions
+        if (!player.compensatedEntities.getSelf().inVehicle()) {
+            // Calculate the offset of the player to colliding other stuff
+            SimpleCollisionBox playerBox = GetBoundingBox.getBoundingBoxFromPosAndSize(player, player.lastX, player.lastY, player.lastZ, 0.6f, 1.8f);
+            playerBox.union(GetBoundingBox.getBoundingBoxFromPosAndSize(player, player.x, player.y, player.z, 0.6f, 1.8f).expand(player.getMovementThreshold()));
+            playerBox.expand(0.2);
 
-                    SimpleCollisionBox entityBox = entity.getPossibleCollisionBoxes();
+            final TeamHandler teamHandler = player.checkManager.getPacketCheck(TeamHandler.class);
 
-                    if (expandedPlayerBox.isCollided(entityBox))
-                        possibleCollidingEntities++;
+            for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
+                if (!entity.isPushable())
+                    continue;
+
+                // 1.9+ player on 1.8- server with ViaVersion prevent-collision disabled.
+                if (PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_9)
+                        && !EntityPredicates.canBePushedBy(player, entity, teamHandler).test(player)) continue;
+
+                SimpleCollisionBox entityBox = entity.getPossibleCollisionBoxes();
+
+                if (playerBox.isCollided(entityBox)) {
+                    possibleCollidingEntities++;
                 }
             }
-
-            if (player.isGliding && possibleCollidingEntities > 0) {
-                // Horizontal starting movement affects vertical movement with elytra, hack around this.
-                // This can likely be reduced but whatever, I don't see this as too much of a problem
-                player.uncertaintyHandler.yNegativeUncertainty -= 0.05;
-                player.uncertaintyHandler.yPositiveUncertainty += 0.05;
-            }
-
-            player.uncertaintyHandler.collidingEntities.add(possibleCollidingEntities);
         }
+
+        if (player.isGliding && possibleCollidingEntities > 0) {
+            // Horizontal starting movement affects vertical movement with elytra, hack around this.
+            // This can likely be reduced but whatever, I don't see this as too much of a problem
+            player.uncertaintyHandler.yNegativeUncertainty -= 0.05;
+            player.uncertaintyHandler.yPositiveUncertainty += 0.05;
+        }
+
+        player.uncertaintyHandler.collidingEntities.add(possibleCollidingEntities);
     }
 
     public void move(Vector inputVel, Vector collide) {
@@ -107,7 +123,8 @@ public class MovementTicker {
         player.boundingBox = GetBoundingBox.getCollisionBoxForPlayer(player, player.x, player.y, player.z);
         // This is how the player checks for fall damage
         // By running fluid pushing for the player
-        if (!player.wasTouchingWater && (player.compensatedEntities.getSelf().getRiding() == null || !EntityTypes.isTypeInstanceOf(player.compensatedEntities.getSelf().getRiding().type, EntityTypes.BOAT))) {
+        final PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
+        if (!player.wasTouchingWater && (riding == null || !riding.isBoat())) {
             new PlayerBaseTick(player).updateInWaterStateAndDoWaterCurrentPushing();
         }
 
@@ -119,7 +136,7 @@ public class MovementTicker {
         }
 
         // Striders call the method for inside blocks AGAIN!
-        if (player.compensatedEntities.getSelf().getRiding() instanceof PacketEntityStrider) {
+        if (riding instanceof PacketEntityStrider) {
             Collisions.handleInsideBlocks(player);
         }
 
@@ -138,13 +155,13 @@ public class MovementTicker {
                 } else {
                     if (player.clientVelocity.getY() < 0.0) {
                         player.clientVelocity.setY(-player.clientVelocity.getY() *
-                                (player.compensatedEntities.getSelf().getRiding() != null && !player.compensatedEntities.getSelf().getRiding().isLivingEntity() ? 0.8 : 1.0));
+                                (riding != null && !riding.isLivingEntity() ? 0.8 : 1.0));
                     }
                 }
             } else if (BlockTags.BEDS.contains(onBlock) && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_12)) {
                 if (player.clientVelocity.getY() < 0.0) {
                     player.clientVelocity.setY(-player.clientVelocity.getY() * 0.6600000262260437 *
-                            (player.compensatedEntities.getSelf().getRiding() != null && !player.compensatedEntities.getSelf().getRiding().isLivingEntity() ? 0.8 : 1.0));
+                            (riding != null && !riding.isLivingEntity() ? 0.8 : 1.0));
                 }
             } else {
                 player.clientVelocity.setY(0);
@@ -308,11 +325,13 @@ public class MovementTicker {
     }
 
     public void livingEntityTravel() {
-        double playerGravity = 0.08;
+        double playerGravity = player.compensatedEntities.getSelf().getRiding() == null
+                ? player.compensatedEntities.getSelf().getAttributeValue(Attributes.GENERIC_GRAVITY)
+                : player.compensatedEntities.getSelf().getRiding().getAttributeValue(Attributes.GENERIC_GRAVITY);
 
         boolean isFalling = player.actualMovement.getY() <= 0.0;
-        if (isFalling && player.compensatedEntities.getSlowFallingAmplifier() != null) {
-            playerGravity = 0.01;
+        if (isFalling && player.compensatedEntities.getSlowFallingAmplifier().isPresent()) {
+            playerGravity = player.getClientVersion().isOlderThan(ClientVersion.V_1_20_5) ? 0.01 : Math.min(playerGravity, 0.01);
             // Set fall distance to 0 if the player has slow falling
             player.fallDistance = 0;
         }
@@ -328,11 +347,11 @@ public class MovementTicker {
         if (player.wasTouchingWater && !player.isFlying) {
             // 0.8F seems hardcoded in
             // 1.13+ players on skeleton horses swim faster! Cool feature.
-            boolean isSkeletonHorse = player.compensatedEntities.getSelf().getRiding() != null && player.compensatedEntities.getSelf().getRiding().type == EntityTypes.SKELETON_HORSE && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_13);
+            boolean isSkeletonHorse = player.compensatedEntities.getSelf().getRiding() != null && player.compensatedEntities.getSelf().getRiding().getType() == EntityTypes.SKELETON_HORSE && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_13);
             swimFriction = player.isSprinting && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_13) ? 0.9F : (isSkeletonHorse ? 0.96F : 0.8F);
             float swimSpeed = 0.02F;
 
-            if (player.depthStriderLevel > 3.0F) {
+            if (player.getClientVersion().isOlderThan(ClientVersion.V_1_21) && player.depthStriderLevel > 3.0F) {
                 player.depthStriderLevel = 3.0F;
             }
 
@@ -341,11 +360,12 @@ public class MovementTicker {
             }
 
             if (player.depthStriderLevel > 0.0F) {
-                swimFriction += (0.54600006F - swimFriction) * player.depthStriderLevel / 3.0F;
-                swimSpeed += (player.speed - swimSpeed) * player.depthStriderLevel / 3.0F;
+                final float divisor = player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21) ? 1.0F : 3.0F;
+                swimFriction += (0.54600006F - swimFriction) * player.depthStriderLevel / divisor;
+                swimSpeed += (player.speed - swimSpeed) * player.depthStriderLevel / divisor;
             }
 
-            if (player.compensatedEntities.getDolphinsGraceAmplifier() != null) {
+            if (player.compensatedEntities.getPotionLevelForPlayer(PotionTypes.DOLPHINS_GRACE).isPresent()) {
                 swimFriction = 0.96F;
             }
 

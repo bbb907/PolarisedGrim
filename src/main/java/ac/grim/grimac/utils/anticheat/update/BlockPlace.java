@@ -18,6 +18,7 @@ import ac.grim.grimac.utils.nmsutil.Materials;
 import ac.grim.grimac.utils.nmsutil.ReachUtils;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.manager.server.ServerVersion;
+import com.github.retrooper.packetevents.protocol.attribute.Attributes;
 import com.github.retrooper.packetevents.protocol.item.ItemStack;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 import com.github.retrooper.packetevents.protocol.player.InteractionHand;
@@ -34,6 +35,7 @@ import com.github.retrooper.packetevents.util.Vector3i;
 import lombok.Getter;
 import lombok.Setter;
 import org.bukkit.util.Vector;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -57,8 +59,9 @@ public class BlockPlace {
     @Getter
     StateType material;
     @Getter
-    HitData hitData;
-    @Setter
+    @Nullable HitData hitData;
+    @Getter
+    int faceId;
     BlockFace face;
     @Getter
     @Setter
@@ -69,10 +72,11 @@ public class BlockPlace {
 
     @Getter private final boolean block;
 
-    public BlockPlace(GrimPlayer player, InteractionHand hand, Vector3i blockPosition, BlockFace face, ItemStack itemStack, HitData hitData) {
+    public BlockPlace(GrimPlayer player, InteractionHand hand, Vector3i blockPosition, int faceId, BlockFace face, ItemStack itemStack, HitData hitData) {
         this.player = player;
         this.hand = hand;
         this.blockPosition = blockPosition;
+        this.faceId = faceId;
         this.face = face;
         this.itemStack = itemStack;
         if (itemStack.getType().getPlacedType() == null) {
@@ -435,6 +439,16 @@ public class BlockPlace {
         return face;
     }
 
+    public void setFace(BlockFace face) {
+        this.face = face;
+        this.faceId = face.getFaceValue();
+    }
+
+    public void setFaceId(int face) {
+        this.faceId = face;
+        this.face = PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_9) ? BlockFace.getBlockFaceByValue(faceId) : BlockFace.getLegacyBlockFaceByValue(faceId);
+    }
+
     private List<BlockFace> getNearestLookingDirections() {
         float f = player.yRot * ((float) Math.PI / 180F);
         float f1 = -player.xRot * ((float) Math.PI / 180F);
@@ -523,21 +537,14 @@ public class BlockPlace {
     }
 
     public Vector3i getNormalBlockFace() {
-        switch (face) {
-            default:
-            case UP:
-                return new Vector3i(0, 1, 0);
-            case DOWN:
-                return new Vector3i(0, -1, 0);
-            case SOUTH:
-                return new Vector3i(0, 0, 1);
-            case NORTH:
-                return new Vector3i(0, 0, -1);
-            case WEST:
-                return new Vector3i(-1, 0, 0);
-            case EAST:
-                return new Vector3i(1, 0, 0);
-        }
+        return switch (face) {
+            case DOWN -> new Vector3i(0, -1, 0);
+            case SOUTH -> new Vector3i(0, 0, 1);
+            case NORTH -> new Vector3i(0, 0, -1);
+            case WEST -> new Vector3i(-1, 0, 0);
+            case EAST -> new Vector3i(1, 0, 0);
+            default -> new Vector3i(0, 1, 0);
+        };
     }
 
     public void set(StateType material) {
@@ -573,8 +580,9 @@ public class BlockPlace {
                 for (PacketEntity entity : player.compensatedEntities.entityMap.values()) {
                     SimpleCollisionBox interpBox = entity.getPossibleCollisionBoxes();
 
-                    double width = BoundingBoxSize.getWidth(player, entity);
-                    double height = BoundingBoxSize.getHeight(player, entity);
+                    final double scale = entity.getAttributeValue(Attributes.GENERIC_SCALE);
+                    double width = BoundingBoxSize.getWidth(player, entity) * scale;
+                    double height = BoundingBoxSize.getHeight(player, entity) * scale;
                     double interpWidth = Math.max(interpBox.maxX - interpBox.minX, interpBox.maxZ - interpBox.minZ);
                     double interpHeight = interpBox.maxY - interpBox.minY;
 
@@ -582,7 +590,7 @@ public class BlockPlace {
                     // This happens due to the lack of an idle packet on 1.9+ clients
                     // On 1.8 clients this should practically never happen
                     if (interpWidth - width > 0.05 || interpHeight - height > 0.05) {
-                        Vector3d entityPos = entity.desyncClientPos;
+                        Vector3d entityPos = entity.trackedServerPosition.getPos();
                         interpBox = GetBoundingBox.getPacketEntityBoundingBox(player, entityPos.getX(), entityPos.getY(), entityPos.getZ(), entity);
                     }
 
@@ -654,9 +662,10 @@ public class BlockPlace {
         SimpleCollisionBox box = new SimpleCollisionBox(getPlacedAgainstBlockLocation());
         Vector look = ReachUtils.getLook(player, player.xRot, player.yRot);
 
+        final double distance = player.compensatedEntities.getSelf().getAttributeValue(Attributes.PLAYER_BLOCK_INTERACTION_RANGE) + 3;
         Vector eyePos = new Vector(player.x, player.y + player.getEyeHeight(), player.z);
-        Vector endReachPos = eyePos.clone().add(new Vector(look.getX() * 6, look.getY() * 6, look.getZ() * 6));
-        Vector intercept = ReachUtils.calculateIntercept(box, eyePos, endReachPos).getFirst();
+        Vector endReachPos = eyePos.clone().add(new Vector(look.getX() * distance, look.getY() * distance, look.getZ() * distance));
+        Vector intercept = ReachUtils.calculateIntercept(box, eyePos, endReachPos).first();
 
         // Bring this back to relative to the block
         // The player didn't even click the block... (we should force resync BEFORE we get here!)

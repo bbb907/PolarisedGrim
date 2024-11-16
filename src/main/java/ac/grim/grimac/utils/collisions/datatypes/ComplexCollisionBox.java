@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.List;
 
 public class ComplexCollisionBox implements CollisionBox {
+
     private final List<CollisionBox> boxes = new ArrayList<>();
 
     public ComplexCollisionBox(CollisionBox... boxes) {
@@ -13,6 +14,12 @@ public class ComplexCollisionBox implements CollisionBox {
 
     public boolean add(CollisionBox collisionBox) {
         return boxes.add(collisionBox);
+    }
+
+    @Override
+    public CollisionBox union(SimpleCollisionBox other) {
+        add(other);
+        return this;
     }
 
     @Override

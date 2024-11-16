@@ -1,7 +1,11 @@
 package ac.grim.grimac.utils.collisions.blocks.connecting;
 
 import ac.grim.grimac.player.GrimPlayer;
-import ac.grim.grimac.utils.collisions.datatypes.*;
+import ac.grim.grimac.utils.collisions.datatypes.CollisionBox;
+import ac.grim.grimac.utils.collisions.datatypes.ComplexCollisionBox;
+import ac.grim.grimac.utils.collisions.datatypes.HexCollisionBox;
+import ac.grim.grimac.utils.collisions.datatypes.NoCollisionBox;
+import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.grim.grimac.utils.nmsutil.Materials;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.manager.server.ServerVersion;
@@ -76,16 +80,17 @@ public class DynamicConnecting {
         } else {
             if (fence == target) return true;
 
-            return checkCanConnect(player, targetBlock, target, fence);
+            return checkCanConnect(player, targetBlock, target, fence, direction);
         }
     }
 
+    /** Some blocks override isFullBlock whilst actually having a full state */
     boolean isBlacklisted(StateType m, StateType fence, ClientVersion clientVersion) {
         if (BlockTags.LEAVES.contains(m)) return clientVersion.isNewerThan(ClientVersion.V_1_8) || !Materials.isGlassPane(fence);
         if (BlockTags.SHULKER_BOXES.contains(m)) return true;
         if (BlockTags.TRAPDOORS.contains(m)) return true;
 
-        return m == StateTypes.CARVED_PUMPKIN || m == StateTypes.JACK_O_LANTERN || m == StateTypes.PUMPKIN || m == StateTypes.MELON ||
+        return m == StateTypes.ENCHANTING_TABLE || m == StateTypes.FARMLAND || m == StateTypes.CARVED_PUMPKIN || m == StateTypes.JACK_O_LANTERN || m == StateTypes.PUMPKIN || m == StateTypes.MELON ||
                 m == StateTypes.BEACON || BlockTags.CAULDRONS.contains(m) || m == StateTypes.GLOWSTONE || m == StateTypes.SEA_LANTERN || m == StateTypes.ICE
                 || m == StateTypes.PISTON || m == StateTypes.STICKY_PISTON || m == StateTypes.PISTON_HEAD || (!canConnectToGlassBlock()
                 && BlockTags.GLASS_BLOCKS.contains(m));
@@ -113,7 +118,7 @@ public class DynamicConnecting {
         return i;
     }
 
-    public boolean checkCanConnect(GrimPlayer player, WrappedBlockState state, StateType one, StateType two) {
+    public boolean checkCanConnect(GrimPlayer player, WrappedBlockState state, StateType one, StateType two, BlockFace direction) {
         return false;
     }
 

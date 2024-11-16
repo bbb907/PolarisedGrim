@@ -25,11 +25,10 @@ import com.github.retrooper.packetevents.protocol.player.GameMode;
 import com.github.retrooper.packetevents.protocol.teleport.RelativeFlag;
 import com.github.retrooper.packetevents.util.Vector3d;
 import com.github.retrooper.packetevents.wrapper.play.server.*;
-import io.github.retrooper.packetevents.util.FoliaCompatUtil;
+import io.github.retrooper.packetevents.util.folia.FoliaScheduler;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Entity;
 import org.bukkit.util.Vector;
@@ -138,6 +137,7 @@ public class SetbackTeleportUtil extends Check implements PostPredictionCheck {
 
     private void blockMovementsUntilResync(boolean simulateNextTickPosition, boolean isResync) {
         if (requiredSetBack == null) return; // Hasn't spawned
+        if (player.bukkitPlayer != null && player.noSetbackPermission) return; // The player has permission to cheat
         requiredSetBack.setPlugin(false); // The player has illegal movement, block from vanilla ac override
         if (isPendingSetback()) return; // Don't spam setbacks
 
@@ -153,12 +153,12 @@ public class SetbackTeleportUtil extends Check implements PostPredictionCheck {
         VelocityData futureExplosion = player.checkManager.getExplosionHandler().getFutureExplosion();
 
         // Velocity sets
-        if (futureKb.getFirst() != null) {
-            clientVel = futureKb.getSecond();
+        if (futureKb.first() != null) {
+            clientVel = futureKb.second();
         }
 
         // Explosion adds
-        if (futureExplosion != null && (futureKb.getFirst() == null || futureKb.getFirst().transaction < futureExplosion.transaction)) {
+        if (futureExplosion != null && (futureKb.first() == null || futureKb.first().transaction < futureExplosion.transaction)) {
             clientVel.add(futureExplosion.vector);
         }
 
@@ -221,7 +221,7 @@ public class SetbackTeleportUtil extends Check implements PostPredictionCheck {
                     player.getSetbackTeleportUtil().cheatVehicleInterpolationDelay = Integer.MAX_VALUE; // Set to max until player accepts the new position
 
                     // Make sure bukkit also knows the player got teleported out of their vehicle, can't do this async
-                    FoliaCompatUtil.runTaskForEntity(player.bukkitPlayer, GrimAPI.INSTANCE.getPlugin(), () -> {
+                    FoliaScheduler.getEntityScheduler().execute(player.bukkitPlayer, GrimAPI.INSTANCE.getPlugin(), () -> {
                         if (player.bukkitPlayer != null) {
                             Entity vehicle = player.bukkitPlayer.getVehicle();
                             if (vehicle != null) {
@@ -281,7 +281,7 @@ public class SetbackTeleportUtil extends Check implements PostPredictionCheck {
 
             // There seems to be a version difference in teleports past 30 million... just clamp the vector
             Vector3d clamped = VectorUtils.clampVector(new Vector3d(trueTeleportX, trueTeleportY, trueTeleportZ));
-            double threshold = teleportPos.isRelativeX() ? player.getMovementThreshold() : 0;
+            double threshold = teleportPos.isRelative() ? player.getMovementThreshold() : 0;
             boolean closeEnoughY = Math.abs(clamped.getY() - y) <= 1e-7 + threshold; // 1.7 rounding
 
             if (player.lastTransactionReceived.get() == teleportPos.getTransaction() && Math.abs(clamped.getX() - x) <= threshold && closeEnoughY && Math.abs(clamped.getZ() - z) <= threshold) {
@@ -328,16 +328,16 @@ public class SetbackTeleportUtil extends Check implements PostPredictionCheck {
         while (true) {
             Pair<Integer, Vector3d> teleportPos = player.vehicleData.vehicleTeleports.peek();
             if (teleportPos == null) break;
-            if (lastTransaction < teleportPos.getFirst()) {
+            if (lastTransaction < teleportPos.first()) {
                 break;
             }
 
-            Vector3d position = teleportPos.getSecond();
+            Vector3d position = teleportPos.second();
             if (position.getX() == x && position.getY() == y && position.getZ() == z) {
                 player.vehicleData.vehicleTeleports.poll();
 
                 return true;
-            } else if (lastTransaction > teleportPos.getFirst() + 1) {
+            } else if (lastTransaction > teleportPos.first() + 1) {
                 player.vehicleData.vehicleTeleports.poll();
 
                 // Vehicles have terrible netcode so just ignore it if the teleport wasn't from us setting the player back

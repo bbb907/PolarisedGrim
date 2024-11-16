@@ -5,9 +5,8 @@ import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.inventory.Inventory;
 import ac.grim.grimac.utils.inventory.InventoryStorage;
 import com.github.retrooper.packetevents.protocol.item.ItemStack;
-import io.github.retrooper.packetevents.util.FoliaCompatUtil;
 import io.github.retrooper.packetevents.util.SpigotConversionUtil;
-import org.bukkit.Bukkit;
+import io.github.retrooper.packetevents.util.folia.FoliaScheduler;
 import org.bukkit.inventory.InventoryView;
 
 import java.util.*;
@@ -19,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Or copy (and debug) over around 5k lines of code to accomplish inventories
  * Grim uses a hybrid system for inventories - we lag compensate but rely on the server
  * for the ultimate source of truth, and resync if what we found is different from what the server sees
- *
+ * <p>
  * This also patches most desync's that happen with inventories on some versions like 1.8 or
  * other desync's introduced by mojang or viabackwards
  *
@@ -105,7 +104,7 @@ public class CorrectingPlayerInventoryStorage extends InventoryStorage {
             ItemStack toPE = SpigotConversionUtil.fromBukkitItemStack(bukkitItem);
 
             if (existing.getType() != toPE.getType() || existing.getAmount() != toPE.getAmount()) {
-                FoliaCompatUtil.runTaskForEntity(player.bukkitPlayer,GrimAPI.INSTANCE.getPlugin(), () -> {
+                FoliaScheduler.getEntityScheduler().execute(player.bukkitPlayer, GrimAPI.INSTANCE.getPlugin(), () -> {
                     player.bukkitPlayer.updateInventory();
                 }, null, 0);
                 setItem(slot, toPE);
@@ -126,7 +125,7 @@ public class CorrectingPlayerInventoryStorage extends InventoryStorage {
         }
 
         if (player.getInventory().needResend) {
-            FoliaCompatUtil.runTaskForEntity(player.bukkitPlayer, GrimAPI.INSTANCE.getPlugin(), () -> {
+            FoliaScheduler.getEntityScheduler().execute(player.bukkitPlayer, GrimAPI.INSTANCE.getPlugin(), () -> {
                 // Potential race condition doing this multiple times
                 if (!player.getInventory().needResend) return;
 

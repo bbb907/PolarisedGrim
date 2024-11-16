@@ -98,7 +98,7 @@ public class ConsumesBlockPlace {
 
     private static boolean goodBellHit(WrappedBlockState bell, BlockPlace place) {
         BlockFace direction = place.getDirection();
-        return isProperHit(bell, direction, place.getHitData().getRelativeBlockHitLocation().getY());
+        return place.getHitData() != null && isProperHit(bell, direction, place.getHitData().getRelativeBlockHitLocation().getY());
     }
 
     private static boolean isProperHit(WrappedBlockState bell, BlockFace direction, double p_49742_) {
@@ -107,17 +107,11 @@ public class ConsumesBlockPlace {
             Attachment attachment = bell.getAttachment();
             BlockFace dir2 = BlockFace.valueOf(direction.name());
 
-            switch (attachment) {
-                case FLOOR:
-                    return AxisUtil.isSameAxis(dir, dir2);
-                case SINGLE_WALL:
-                case DOUBLE_WALL:
-                    return !AxisUtil.isSameAxis(dir, dir2);
-                case CEILING:
-                    return true;
-                default:
-                    return false;
-            }
+            return switch (attachment) {
+                case FLOOR -> AxisUtil.isSameAxis(dir, dir2);
+                case SINGLE_WALL, DOUBLE_WALL -> !AxisUtil.isSameAxis(dir, dir2);
+                case CEILING -> true;
+            };
         } else {
             return false;
         }

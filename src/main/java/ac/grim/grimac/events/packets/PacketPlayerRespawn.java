@@ -24,10 +24,43 @@ import org.bukkit.util.Vector;
 import java.util.List;
 import java.util.Objects;
 
+/**
+ * PlayerRespawnS2CPacket info (1.20.2+):
+ * If the world is different (check via registry key), world is recreated (all entities etc destroyed).
+ * <p>
+ * Client player is ALWAYS recreated
+ * <p>
+ * If the packet has the `KEEP_TRACKED_DATA` flag:
+ * Sneaking and Sprinting fields are kept on the new client player.
+ * <p>
+ * If the packet has the `KEEP_ATTRIBUTES` flag:
+ * Attributes are kept.
+ * <p>
+ * New client player is initialised:
+ * Pose is set to standing.
+ * Velocity is set to zero.
+ * Pitch is set to 0.
+ * Yaw is set to -180.
+ */
+// TODO update for 1.20.2-
 public class PacketPlayerRespawn extends PacketListenerAbstract {
 
     public PacketPlayerRespawn() {
         super(PacketListenerPriority.HIGH);
+    }
+
+    private static final byte KEEP_ATTRIBUTES = 1;
+    private static final byte KEEP_TRACKED_DATA = 2;
+    private static final byte KEEP_ALL = 3;
+
+    private boolean hasFlag(WrapperPlayServerRespawn respawn, byte flag) {
+        // This packet was added in 1.16
+        // On versions older than 1.15, via does not keep all data.
+        // https://github.com/ViaVersion/ViaVersion/blob/master/common/src/main/java/com/viaversion/viaversion/protocols/v1_15_2to1_16/rewriter/EntityPacketRewriter1_16.java#L124
+        if (PacketEvents.getAPI().getServerManager().getVersion().isOlderThan(ServerVersion.V_1_15)) {
+            return false;
+        }
+        return (respawn.getKeptData() & flag) != 0;
     }
 
     @Override
@@ -71,10 +104,10 @@ public class PacketPlayerRespawn extends PacketListenerAbstract {
             WrapperPlayServerJoinGame joinGame = new WrapperPlayServerJoinGame(event);
             player.gamemode = joinGame.getGameMode();
             player.entityID = joinGame.getEntityId();
-            player.dimension = joinGame.getDimension();
+            player.dimensionType = joinGame.getDimensionType();
 
             if (PacketEvents.getAPI().getServerManager().getVersion().isOlderThan(ServerVersion.V_1_17)) return;
-            player.compensatedWorld.setDimension(joinGame.getDimension().getDimensionName(), event.getUser());
+            player.compensatedWorld.setDimension(joinGame.getDimensionType(), event.getUser());
         }
 
         if (event.getPacketType() == PacketType.Play.Server.RESPAWN) {
@@ -92,15 +125,36 @@ public class PacketPlayerRespawn extends PacketListenerAbstract {
             player.getSetbackTeleportUtil().hasAcceptedSpawnTeleport = false;
             player.getSetbackTeleportUtil().lastKnownGoodPosition = null;
 
-            // TODO: What does keep all metadata do?
+            // clear server entity positions when the world changes
+            if (isWorldChange(player, respawn)) {
+                player.compensatedEntities.serverPositionsMap.clear();
+            }
+
             player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get() + 1, () -> {
                 player.isSneaking = false;
                 player.lastOnGround = false;
+                player.onGround = false;
                 player.isInBed = false;
+                player.packetStateData.setSlowedByUsingItem(false);
                 player.packetStateData.packetPlayerOnGround = false; // If somewhere else pulls last ground to fix other issues
                 player.packetStateData.lastClaimedPosition = new Vector3d();
                 player.filterMojangStupidityOnMojangStupidity = new Vector3d();
-                player.lastSprintingForSpeed = false; // This is reverted even on 1.18 clients
+
+                final boolean keepTrackedData = this.hasFlag(respawn, KEEP_TRACKED_DATA);
+
+                if (!keepTrackedData) {
+                    player.powderSnowFrozenTicks = 0;
+                    player.compensatedEntities.getSelf().hasGravity = true;
+                    player.playerEntityHasGravity = true;
+                }
+
+                if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_19_4)) {
+                    if (!keepTrackedData) {
+                        player.isSprinting = false;
+                    }
+                } else {
+                    player.lastSprintingForSpeed = false;
+                }
 
                 player.checkManager.getPacketCheck(BadPacketsE.class).handleRespawn(); // Reminder ticks reset
 
@@ -110,17 +164,17 @@ public class PacketPlayerRespawn extends PacketListenerAbstract {
                 }
 
                 // EVERYTHING gets reset on a cross dimensional teleport, clear chunks and entities!
-                if (respawn.getDimension().getId() != player.dimension.getId() || !Objects.equals(respawn.getDimension().getDimensionName(), player.dimension.getDimensionName()) || !Objects.equals(respawn.getDimension().getAttributes(), player.dimension.getAttributes())) {
+                if (isWorldChange(player, respawn)) {
                     player.compensatedEntities.entityMap.clear();
                     player.compensatedWorld.activePistons.clear();
                     player.compensatedWorld.openShulkerBoxes.clear();
                     player.compensatedWorld.chunks.clear();
                     player.compensatedWorld.isRaining = false;
                 }
-                player.dimension = respawn.getDimension();
+                player.dimensionType = respawn.getDimensionType();
 
                 player.compensatedEntities.serverPlayerVehicle = null; // All entities get removed on respawn
-                player.compensatedEntities.playerEntity = new PacketEntitySelf(player);
+                player.compensatedEntities.playerEntity = new PacketEntitySelf(player, player.compensatedEntities.playerEntity);
                 player.compensatedEntities.selfTrackedEntity = new TrackerData(0, 0, 0, 0, 0, EntityTypes.PLAYER, player.lastTransactionSent.get());
 
                 if (player.getClientVersion().isOlderThan(ClientVersion.V_1_14)) { // 1.14+ players send a packet for this, listen for it instead
@@ -134,9 +188,21 @@ public class PacketPlayerRespawn extends PacketListenerAbstract {
                 player.clientVelocity = new Vector();
                 player.gamemode = respawn.getGameMode();
                 if (PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_17)) {
-                    player.compensatedWorld.setDimension(respawn.getDimension().getDimensionName(), event.getUser());
+                    player.compensatedWorld.setDimension(respawn.getDimensionType(), event.getUser());
+                }
+
+                if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_16) && !this.hasFlag(respawn, KEEP_ATTRIBUTES)) {
+                    // Reset attributes if not kept
+                    player.compensatedEntities.getSelf().resetAttributes();
+                    player.compensatedEntities.hasSprintingAttributeEnabled = false;
                 }
             });
         }
+    }
+
+    private boolean isWorldChange(GrimPlayer player, WrapperPlayServerRespawn respawn) {
+        ClientVersion version = PacketEvents.getAPI().getServerManager().getVersion().toClientVersion();
+        return respawn.getDimensionType().getId(version) != player.dimensionType.getId(version)
+                || !Objects.equals(respawn.getDimensionType().getName(), player.dimensionType.getName());
     }
 }

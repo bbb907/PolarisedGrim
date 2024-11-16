@@ -39,20 +39,23 @@ public class BadPacketsO extends Check implements PacketCheck {
             boolean hasID = false;
 
             for (Pair<Long, Long> iterator : keepaliveMap) {
-                if (iterator.getFirst() == id) {
+                if (iterator.first() == id) {
                     hasID = true;
                     break;
                 }
             }
 
             if (!hasID) {
-                flagAndAlert("ID: " + id);
+                if (flagAndAlert("id=" + id) && shouldModifyPackets()) {
+                    event.setCancelled(true);
+                    player.onPacketCancel();
+                }
             } else { // Found the ID, remove stuff until we get to it (to stop very slow memory leaks)
                 Pair<Long, Long> data;
                 do {
                     data = keepaliveMap.poll();
                     if (data == null) break;
-                } while (data.getFirst() != id);
+                } while (data.first() != id);
             }
         }
     }

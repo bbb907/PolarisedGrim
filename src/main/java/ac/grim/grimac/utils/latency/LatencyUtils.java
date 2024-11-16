@@ -16,8 +16,20 @@ public class LatencyUtils {
     }
 
     public void addRealTimeTask(int transaction, Runnable runnable) {
+        addRealTimeTask(transaction, false, runnable);
+    }
+
+    public void addRealTimeTaskAsync(int transaction, Runnable runnable) {
+        addRealTimeTask(transaction, true, runnable);
+    }
+
+    public void addRealTimeTask(int transaction, boolean async, Runnable runnable) {
         if (player.lastTransactionReceived.get() >= transaction) { // If the player already responded to this transaction
-            ChannelHelper.runInEventLoop(player.user.getChannel(), runnable); // Run it sync to player channel
+            if (async) {
+                ChannelHelper.runInEventLoop(player.user.getChannel(), runnable); // Run it sync to player channel
+            } else {
+                runnable.run();
+            }
             return;
         }
         synchronized (this) {
@@ -31,17 +43,17 @@ public class LatencyUtils {
                 Pair<Integer, Runnable> pair = iterator.next();
 
                 // We are at most a tick ahead when running tasks based on transactions, meaning this is too far
-                if (transaction + 1 < pair.getFirst())
+                if (transaction + 1 < pair.first())
                     return;
 
                 // This is at most tick ahead of what we want
-                if (transaction == pair.getFirst() - 1)
+                if (transaction == pair.first() - 1)
                     continue;
 
 
                 try {
                     // Run the task
-                    pair.getSecond().run();
+                    pair.second().run();
                 } catch (Exception e) {
                     System.out.println("An error has occurred when running transactions for player: " + player.user.getName());
                     e.printStackTrace();

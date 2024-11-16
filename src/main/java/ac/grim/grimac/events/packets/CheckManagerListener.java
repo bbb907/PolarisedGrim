@@ -1,6 +1,8 @@
 package ac.grim.grimac.events.packets;
 
 import ac.grim.grimac.GrimAPI;
+import ac.grim.grimac.checks.impl.badpackets.BadPacketsX;
+import ac.grim.grimac.checks.impl.badpackets.BadPacketsZ;
 import ac.grim.grimac.events.packets.patch.ResyncWorldUtil;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.update.*;
@@ -22,6 +24,7 @@ import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
 import com.github.retrooper.packetevents.manager.server.ServerVersion;
 import com.github.retrooper.packetevents.protocol.ConnectionState;
+import com.github.retrooper.packetevents.protocol.attribute.Attributes;
 import com.github.retrooper.packetevents.protocol.item.ItemStack;
 import com.github.retrooper.packetevents.protocol.item.type.ItemType;
 import com.github.retrooper.packetevents.protocol.item.type.ItemTypes;
@@ -42,7 +45,6 @@ import com.github.retrooper.packetevents.util.Vector3i;
 import com.github.retrooper.packetevents.wrapper.PacketWrapper;
 import com.github.retrooper.packetevents.wrapper.play.client.*;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerAcknowledgeBlockChanges;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBlockChange;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetSlot;
 import io.github.retrooper.packetevents.util.SpigotConversionUtil;
 import org.bukkit.util.Vector;
@@ -50,6 +52,7 @@ import org.bukkit.util.Vector;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 
 public class CheckManagerListener extends PacketListenerAbstract {
 
@@ -131,7 +134,7 @@ public class CheckManagerListener extends PacketListenerAbstract {
     private static void placeWaterLavaSnowBucket(GrimPlayer player, ItemStack held, StateType toPlace, InteractionHand hand) {
         HitData data = getNearestHitResult(player, StateTypes.AIR, false);
         if (data != null) {
-            BlockPlace blockPlace = new BlockPlace(player, hand, data.getPosition(), data.getClosestDirection(), held, data);
+            BlockPlace blockPlace = new BlockPlace(player, hand, data.getPosition(), data.getClosestDirection().getFaceValue(), data.getClosestDirection(), held, data);
 
             boolean didPlace = false;
 
@@ -222,11 +225,10 @@ public class CheckManagerListener extends PacketListenerAbstract {
         }
     }
 
-    private static void handleBlockPlaceOrUseItem(PacketWrapper packet, GrimPlayer player) {
+    private static void handleBlockPlaceOrUseItem(PacketWrapper<?> packet, GrimPlayer player) {
         // Legacy "use item" packet
-        if (packet instanceof WrapperPlayClientPlayerBlockPlacement &&
+        if (packet instanceof WrapperPlayClientPlayerBlockPlacement place &&
                 PacketEvents.getAPI().getServerManager().getVersion().isOlderThan(ServerVersion.V_1_9)) {
-            WrapperPlayClientPlayerBlockPlacement place = (WrapperPlayClientPlayerBlockPlacement) packet;
 
             if (player.gamemode == GameMode.SPECTATOR || player.gamemode == GameMode.ADVENTURE) return;
 
@@ -241,9 +243,7 @@ public class CheckManagerListener extends PacketListenerAbstract {
             }
         }
 
-        if (packet instanceof WrapperPlayClientUseItem) {
-            WrapperPlayClientUseItem place = (WrapperPlayClientUseItem) packet;
-
+        if (packet instanceof WrapperPlayClientUseItem place) {
             if (player.gamemode == GameMode.SPECTATOR || player.gamemode == GameMode.ADVENTURE) return;
 
             ItemStack placedWith = player.getInventory().getHeldItem();
@@ -255,9 +255,7 @@ public class CheckManagerListener extends PacketListenerAbstract {
         }
 
         // Check for interactable first (door, etc)
-        if (packet instanceof WrapperPlayClientPlayerBlockPlacement) {
-            WrapperPlayClientPlayerBlockPlacement place = (WrapperPlayClientPlayerBlockPlacement) packet;
-
+        if (packet instanceof WrapperPlayClientPlayerBlockPlacement place) {
             ItemStack placedWith = player.getInventory().getHeldItem();
             ItemStack offhand = player.getInventory().getOffHand();
 
@@ -266,12 +264,16 @@ public class CheckManagerListener extends PacketListenerAbstract {
             // The offhand is unable to interact with blocks like this... try to stop some desync points before they happen
             if ((!player.isSneaking || onlyAir) && place.getHand() == InteractionHand.MAIN_HAND) {
                 Vector3i blockPosition = place.getBlockPosition();
-                BlockPlace blockPlace = new BlockPlace(player, place.getHand(), blockPosition, place.getFace(), placedWith, getNearestHitResult(player, null, true));
+                BlockPlace blockPlace = new BlockPlace(player, place.getHand(), blockPosition, place.getFaceId(), place.getFace(), placedWith, getNearestHitResult(player, null, true));
 
                 // Right-clicking a trapdoor/door/etc.
                 StateType placedAgainst = blockPlace.getPlacedAgainstMaterial();
                 if ((player.getClientVersion().isOlderThan(ClientVersion.V_1_8) && (placedAgainst == StateTypes.IRON_TRAPDOOR || placedAgainst == StateTypes.IRON_DOOR))
                         || Materials.isClientSideInteractable(placedAgainst)) {
+
+                    if (!player.compensatedEntities.getSelf().inVehicle()) {
+                        player.checkManager.onPostFlyingBlockPlace(blockPlace);
+                    }
                     Vector3i location = blockPlace.getPlacedAgainstBlockLocation();
                     player.compensatedWorld.tickOpenable(location.getX(), location.getY(), location.getZ());
                     return;
@@ -281,13 +283,15 @@ public class CheckManagerListener extends PacketListenerAbstract {
                 // This method is for when the block doesn't always consume the click
                 // This causes a ton of desync's but mojang doesn't seem to care...
                 if (ConsumesBlockPlace.consumesPlace(player, player.compensatedWorld.getWrappedBlockStateAt(blockPlace.getPlacedAgainstBlockLocation()), blockPlace)) {
+                    if (!player.compensatedEntities.getSelf().inVehicle()) {
+                        player.checkManager.onPostFlyingBlockPlace(blockPlace);
+                    }
                     return;
                 }
             }
         }
 
-        if (packet instanceof WrapperPlayClientPlayerBlockPlacement) {
-            WrapperPlayClientPlayerBlockPlacement place = (WrapperPlayClientPlayerBlockPlacement) packet;
+        if (packet instanceof WrapperPlayClientPlayerBlockPlacement place) {
             Vector3i blockPosition = place.getBlockPosition();
             BlockFace face = place.getFace();
 
@@ -299,7 +303,7 @@ public class CheckManagerListener extends PacketListenerAbstract {
                 placedWith = player.getInventory().getOffHand();
             }
 
-            BlockPlace blockPlace = new BlockPlace(player, place.getHand(), blockPosition, face, placedWith, getNearestHitResult(player, null, true));
+            BlockPlace blockPlace = new BlockPlace(player, place.getHand(), blockPosition, place.getFaceId(), face, placedWith, getNearestHitResult(player, null, true));
             // At this point, it is too late to cancel, so we can only flag, and cancel subsequent block places more aggressively
             if (!player.compensatedEntities.getSelf().inVehicle()) {
                 player.checkManager.onPostFlyingBlockPlace(blockPlace);
@@ -314,7 +318,12 @@ public class CheckManagerListener extends PacketListenerAbstract {
     }
 
     private boolean isMojangStupid(GrimPlayer player, WrapperPlayClientPlayerFlying flying) {
-        double threshold = player.getMovementThreshold();
+        // Mojang has become less stupid!
+        if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_21)) return false;
+
+        final Location location = flying.getLocation();
+        final double threshold = player.getMovementThreshold();
+
         // Don't check duplicate 1.17 packets (Why would you do this mojang?)
         // Don't check rotation since it changes between these packets, with the second being irrelevant.
         //
@@ -326,25 +335,45 @@ public class CheckManagerListener extends PacketListenerAbstract {
                         // Mojang added this stupid mechanic in 1.17
                         && (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_17) &&
                         // Due to 0.03, we can't check exact position, only within 0.03
-                        player.filterMojangStupidityOnMojangStupidity.distanceSquared(flying.getLocation().getPosition()) < threshold * threshold))
+                        player.filterMojangStupidityOnMojangStupidity.distanceSquared(location.getPosition()) < threshold * threshold))
                         // If the player was in a vehicle, has position and look, and wasn't a teleport, then it was this stupid packet
                         || player.compensatedEntities.getSelf().inVehicle())) {
-            player.packetStateData.lastPacketWasOnePointSeventeenDuplicate = true;
 
-            if (player.xRot != flying.getLocation().getYaw() || player.yRot != flying.getLocation().getPitch()) {
-                player.lastXRot = player.xRot;
-                player.lastYRot = player.yRot;
+            // Mark that we want this packet to be cancelled from reaching the server
+            // Additionally, only yaw/pitch matters: https://github.com/GrimAnticheat/Grim/issues/1275#issuecomment-1872444018
+            // 1.9+ isn't impacted by this packet as much.
+            if (PacketEvents.getAPI().getServerManager().getVersion().isOlderThanOrEquals(ServerVersion.V_1_9)) {
+                if (player.isCancelDuplicatePacket()) {
+                    player.packetStateData.cancelDuplicatePacket = true;
+                }
+            } else {
+                // Override location to force it to use the last real position of the player. Prevents position-related bypasses like nofall.
+                flying.setLocation(new Location(player.filterMojangStupidityOnMojangStupidity.getX(), player.filterMojangStupidityOnMojangStupidity.getY(), player.filterMojangStupidityOnMojangStupidity.getZ(), location.getYaw(), location.getPitch()));
             }
 
-            // Take the pitch and yaw, just in case we were wrong about this being a stupidity packet
-            player.xRot = flying.getLocation().getYaw();
-            player.yRot = flying.getLocation().getPitch();
+            player.packetStateData.lastPacketWasOnePointSeventeenDuplicate = true;
 
-            player.packetStateData.lastClaimedPosition = flying.getLocation().getPosition();
+            if (!player.isIgnoreDuplicatePacketRotation()) {
+                if (player.xRot != location.getYaw() || player.yRot != location.getPitch()) {
+                    player.lastXRot = player.xRot;
+                    player.lastYRot = player.yRot;
+                }
+
+                // Take the pitch and yaw, just in case we were wrong about this being a stupidity packet
+                player.xRot = location.getYaw();
+                player.yRot = location.getPitch();
+            }
+
+            player.packetStateData.lastClaimedPosition = location.getPosition();
             return true;
         }
         return false;
     }
+
+    // Manual filter on FINISH_DIGGING to prevent clients setting non-breakable blocks to air
+    private static final Function<StateType, Boolean> BREAKABLE = type -> {
+        return !type.isAir() && type.getHardness() != -1.0f && type != StateTypes.WATER && type != StateTypes.LAVA;
+    };
 
     @Override
     public void onPacketReceive(PacketReceiveEvent event) {
@@ -392,13 +421,15 @@ public class CheckManagerListener extends PacketListenerAbstract {
 
         // The player flagged crasher or timer checks, therefore we must protect predictions against these attacks
         if (event.isCancelled() && (WrapperPlayClientPlayerFlying.isFlying(event.getPacketType()) || event.getPacketType() == PacketType.Play.Client.VEHICLE_MOVE)) {
+            player.packetStateData.cancelDuplicatePacket = false;
             return;
         }
 
         if (WrapperPlayClientPlayerFlying.isFlying(event.getPacketType())) {
             WrapperPlayClientPlayerFlying flying = new WrapperPlayClientPlayerFlying(event);
             Location pos = flying.getLocation();
-            handleFlying(player, pos.getX(), pos.getY(), pos.getZ(), pos.getYaw(), pos.getPitch(), flying.hasPositionChanged(), flying.hasRotationChanged(), flying.isOnGround(), teleportData, event);
+            boolean ignoreRotation = player.packetStateData.lastPacketWasOnePointSeventeenDuplicate && player.isIgnoreDuplicatePacketRotation();
+            handleFlying(player, pos.getX(), pos.getY(), pos.getZ(), ignoreRotation ? player.xRot : pos.getYaw(), ignoreRotation ? player.yRot : pos.getPitch(), flying.hasPositionChanged(), flying.hasRotationChanged(), flying.isOnGround(), teleportData, event);
         }
 
         if (event.getPacketType() == PacketType.Play.Client.VEHICLE_MOVE && player.compensatedEntities.getSelf().inVehicle()) {
@@ -425,19 +456,24 @@ public class CheckManagerListener extends PacketListenerAbstract {
 
         if (event.getPacketType() == PacketType.Play.Client.PLAYER_DIGGING) {
             WrapperPlayClientPlayerDigging dig = new WrapperPlayClientPlayerDigging(event);
-            WrappedBlockState block = player.compensatedWorld.getWrappedBlockStateAt(dig.getBlockPosition());
+            final Vector3i digPosition = dig.getBlockPosition();
+            WrappedBlockState block = player.compensatedWorld.getWrappedBlockStateAt(digPosition);
+            final StateType type = block.getType();
+
+            player.checkManager.getPacketCheck(BadPacketsX.class).handle(event, dig, type);
+            player.checkManager.getPacketCheck(BadPacketsZ.class).handle(event, dig);
 
             if (dig.getAction() == DiggingAction.FINISHED_DIGGING) {
                 // Not unbreakable
-                if (block.getType().getHardness() != -1.0f) {
+                if (BREAKABLE.apply(type) && !event.isCancelled()) {
                     player.compensatedWorld.startPredicting();
-                    player.compensatedWorld.updateBlock(dig.getBlockPosition().getX(), dig.getBlockPosition().getY(), dig.getBlockPosition().getZ(), 0);
+                    player.compensatedWorld.updateBlock(digPosition.getX(), digPosition.getY(), digPosition.getZ(), 0);
                     player.compensatedWorld.stopPredicting(dig);
                 }
             }
 
-            if (dig.getAction() == DiggingAction.START_DIGGING) {
-                double damage = BlockBreakSpeed.getBlockDamage(player, dig.getBlockPosition());
+            if (dig.getAction() == DiggingAction.START_DIGGING && !event.isCancelled()) {
+                double damage = BlockBreakSpeed.getBlockDamage(player, digPosition);
 
                 //Instant breaking, no damage means it is unbreakable by creative players (with swords)
                 if (damage >= 1) {
@@ -445,16 +481,18 @@ public class CheckManagerListener extends PacketListenerAbstract {
                     if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_13) && Materials.isWaterSource(player.getClientVersion(), block)) {
                         // Vanilla uses a method to grab water flowing, but as you can't break flowing water
                         // We can simply treat all waterlogged blocks or source blocks as source blocks
-                        player.compensatedWorld.updateBlock(dig.getBlockPosition(), StateTypes.WATER.createBlockState(CompensatedWorld.blockVersion));
+                        player.compensatedWorld.updateBlock(digPosition, StateTypes.WATER.createBlockState(CompensatedWorld.blockVersion));
                     } else {
-                        player.compensatedWorld.updateBlock(dig.getBlockPosition().getX(), dig.getBlockPosition().getY(), dig.getBlockPosition().getZ(), 0);
+                        player.compensatedWorld.updateBlock(digPosition.getX(), digPosition.getY(), digPosition.getZ(), 0);
                     }
                     player.compensatedWorld.stopPredicting(dig);
                 }
             }
 
-            if (dig.getAction() == DiggingAction.START_DIGGING || dig.getAction() == DiggingAction.FINISHED_DIGGING || dig.getAction() == DiggingAction.CANCELLED_DIGGING) {
-                player.compensatedWorld.handleBlockBreakPrediction(dig);
+            if (!event.isCancelled()) {
+                if (dig.getAction() == DiggingAction.START_DIGGING || dig.getAction() == DiggingAction.FINISHED_DIGGING || dig.getAction() == DiggingAction.CANCELLED_DIGGING) {
+                    player.compensatedWorld.handleBlockBreakPrediction(dig);
+                }
             }
         }
 
@@ -470,10 +508,9 @@ public class CheckManagerListener extends PacketListenerAbstract {
             // This is the use item packet
             if (packet.getFace() == BlockFace.OTHER && PacketEvents.getAPI().getServerManager().getVersion().isOlderThan(ServerVersion.V_1_9)) {
                 player.placeUseItemPackets.add(new BlockPlaceSnapshot(packet, player.isSneaking));
-                PacketPlayerDigging.handleUseItem(player, player.getInventory().getHeldItem(), InteractionHand.MAIN_HAND);
             } else {
                 // Anti-air place
-                BlockPlace blockPlace = new BlockPlace(player, packet.getHand(), packet.getBlockPosition(), packet.getFace(), placedWith, getNearestHitResult(player, null, true));
+                BlockPlace blockPlace = new BlockPlace(player, packet.getHand(), packet.getBlockPosition(), packet.getFaceId(), packet.getFace(), placedWith, getNearestHitResult(player, null, true));
                 blockPlace.setCursor(packet.getCursorPosition());
 
                 if (PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_11) && player.getClientVersion().isOlderThan(ClientVersion.V_1_11)) {
@@ -489,12 +526,15 @@ public class CheckManagerListener extends PacketListenerAbstract {
                     }
                 }
 
-                if ((placedWith.getType().getPlacedType() != null || placedWith.getType() == ItemTypes.FIRE_CHARGE) && !player.compensatedEntities.getSelf().inVehicle())
+                if (!player.compensatedEntities.getSelf().inVehicle())
                     player.checkManager.onBlockPlace(blockPlace);
 
-                if (blockPlace.isCancelled() || player.getSetbackTeleportUtil().shouldBlockMovement()) { // The player tried placing blocks in air/water
-                    event.setCancelled(true);
-                    player.onPacketCancel();
+                if (event.isCancelled() || blockPlace.isCancelled() || player.getSetbackTeleportUtil().shouldBlockMovement()) { // The player tried placing blocks in air/water
+
+                    if (!event.isCancelled()) {
+                        event.setCancelled(true);
+                        player.onPacketCancel();
+                    }
 
                     Vector3i facePos = new Vector3i(packet.getBlockPosition().getX() + packet.getFace().getModX(), packet.getBlockPosition().getY() + packet.getFace().getModY(), packet.getBlockPosition().getZ() + packet.getFace().getModZ());
 
@@ -533,6 +573,11 @@ public class CheckManagerListener extends PacketListenerAbstract {
         // Such as the NoFall check setting the player to not be on the ground
         player.checkManager.onPacketReceive(event);
 
+        if (player.packetStateData.cancelDuplicatePacket) {
+            event.setCancelled(true);
+            player.packetStateData.cancelDuplicatePacket = false;
+        }
+
         // Finally, remove the packet state variables on this packet
         player.packetStateData.lastPacketWasOnePointSeventeenDuplicate = false;
         player.packetStateData.lastPacketWasTeleport = false;
@@ -542,7 +587,7 @@ public class CheckManagerListener extends PacketListenerAbstract {
         HitData data = getNearestHitResult(player, null, true);
 
         if (data != null) {
-            BlockPlace blockPlace = new BlockPlace(player, hand, data.getPosition(), data.getClosestDirection(), ItemStack.EMPTY, data);
+            BlockPlace blockPlace = new BlockPlace(player, hand, data.getPosition(), data.getClosestDirection().getFaceValue(), data.getClosestDirection(), ItemStack.EMPTY, data);
             blockPlace.setReplaceClicked(true); // Replace the block clicked, not the block in the direction
 
             boolean placed = false;
@@ -712,7 +757,7 @@ public class CheckManagerListener extends PacketListenerAbstract {
             if (player.compensatedWorld.getFluidLevelAt(data.getPosition().getX(), data.getPosition().getY() + 1, data.getPosition().getZ()) > 0)
                 return;
 
-            BlockPlace blockPlace = new BlockPlace(player, hand, data.getPosition(), data.getClosestDirection(), ItemStack.EMPTY, data);
+            BlockPlace blockPlace = new BlockPlace(player, hand, data.getPosition(), data.getClosestDirection().getFaceValue(), data.getClosestDirection(), ItemStack.EMPTY, data);
             blockPlace.setReplaceClicked(false); // Not possible with use item
 
             // We checked for a full fluid block below here.
@@ -739,7 +784,8 @@ public class CheckManagerListener extends PacketListenerAbstract {
         Vector3d startingPos = new Vector3d(player.x, player.y + player.getEyeHeight(), player.z);
         Vector startingVec = new Vector(startingPos.getX(), startingPos.getY(), startingPos.getZ());
         Ray trace = new Ray(player, startingPos.getX(), startingPos.getY(), startingPos.getZ(), player.xRot, player.yRot);
-        Vector endVec = trace.getPointAtDistance(5);
+        final double distance = player.compensatedEntities.getSelf().getAttributeValue(Attributes.PLAYER_BLOCK_INTERACTION_RANGE);
+        Vector endVec = trace.getPointAtDistance(distance);
         Vector3d endPos = new Vector3d(endVec.getX(), endVec.getY(), endVec.getZ());
 
         return traverseBlocks(player, startingPos, endPos, (block, vector3i) -> {
@@ -752,15 +798,15 @@ public class CheckManagerListener extends PacketListenerAbstract {
             BlockFace bestFace = null;
 
             for (SimpleCollisionBox box : boxes) {
-                Pair<Vector, BlockFace> intercept = ReachUtils.calculateIntercept(box, trace.getOrigin(), trace.getPointAtDistance(6));
-                if (intercept.getFirst() == null) continue; // No intercept
+                Pair<Vector, BlockFace> intercept = ReachUtils.calculateIntercept(box, trace.getOrigin(), trace.getPointAtDistance(distance));
+                if (intercept.first() == null) continue; // No intercept
 
-                Vector hitLoc = intercept.getFirst();
+                Vector hitLoc = intercept.first();
 
                 if (hitLoc.distanceSquared(startingVec) < bestHitResult) {
                     bestHitResult = hitLoc.distanceSquared(startingVec);
                     bestHitLoc = hitLoc;
-                    bestFace = intercept.getSecond();
+                    bestFace = intercept.second();
                 }
             }
             if (bestHitLoc != null) {
@@ -773,10 +819,10 @@ public class CheckManagerListener extends PacketListenerAbstract {
                 double waterHeight = player.compensatedWorld.getFluidLevelAt(vector3i.getX(), vector3i.getY(), vector3i.getZ());
                 SimpleCollisionBox box = new SimpleCollisionBox(vector3i.getX(), vector3i.getY(), vector3i.getZ(), vector3i.getX() + 1, vector3i.getY() + waterHeight, vector3i.getZ() + 1);
 
-                Pair<Vector, BlockFace> intercept = ReachUtils.calculateIntercept(box, trace.getOrigin(), trace.getPointAtDistance(6));
+                Pair<Vector, BlockFace> intercept = ReachUtils.calculateIntercept(box, trace.getOrigin(), trace.getPointAtDistance(distance));
 
-                if (intercept.getFirst() != null) {
-                    return new HitData(vector3i, intercept.getFirst(), intercept.getSecond(), block);
+                if (intercept.first() != null) {
+                    return new HitData(vector3i, intercept.first(), intercept.second(), block);
                 }
             }
 

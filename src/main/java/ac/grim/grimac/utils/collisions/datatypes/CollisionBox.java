@@ -1,8 +1,12 @@
 package ac.grim.grimac.utils.collisions.datatypes;
 
+import com.github.retrooper.packetevents.protocol.world.BlockFace;
+
 import java.util.List;
 
 public interface CollisionBox {
+    CollisionBox union(SimpleCollisionBox other);
+
     boolean isCollided(SimpleCollisionBox other);
 
     boolean isIntersected(SimpleCollisionBox other);
@@ -16,4 +20,8 @@ public interface CollisionBox {
     boolean isNull();
 
     boolean isFullBlock();
+
+    default boolean isSideFullBlock(BlockFace axis) {
+        return isFullBlock();
+    }
 }

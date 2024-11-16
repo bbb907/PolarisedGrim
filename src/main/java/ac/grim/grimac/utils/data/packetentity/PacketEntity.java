@@ -18,22 +18,34 @@ package ac.grim.grimac.utils.data.packetentity;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.grim.grimac.utils.data.ReachInterpolationData;
+import ac.grim.grimac.utils.data.TrackedPosition;
+import ac.grim.grimac.utils.data.attribute.ValuedAttribute;
 import ac.grim.grimac.utils.nmsutil.GetBoundingBox;
+import com.github.retrooper.packetevents.protocol.attribute.Attribute;
+import com.github.retrooper.packetevents.protocol.attribute.Attributes;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityType;
-import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 import com.github.retrooper.packetevents.protocol.potion.PotionType;
 import com.github.retrooper.packetevents.util.Vector3d;
+import lombok.Getter;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.OptionalInt;
+import java.util.UUID;
+import java.util.Map;
+import java.util.Optional;
 
 // You may not copy this check unless your anticheat is licensed under GPL
-public class PacketEntity {
-    public Vector3d desyncClientPos;
-    public EntityType type;
+public class PacketEntity extends TypedPacketEntity {
 
+    public final TrackedPosition trackedServerPosition;
+
+    // TODO in what cases is UUID null in 1.9+?
+    @Getter
+    private final UUID uuid; // NULL ON VERSIONS BELOW 1.9 (or for some entities, apparently??)
     public PacketEntity riding;
     public List<PacketEntity> passengers = new ArrayList<>(0);
     public boolean isDead = false;
@@ -42,44 +54,68 @@ public class PacketEntity {
     private ReachInterpolationData oldPacketLocation;
     private ReachInterpolationData newPacketLocation;
 
-    public HashMap<PotionType, Integer> potionsMap = null;
+    private Map<PotionType, Integer> potionsMap = null;
+    protected final Map<Attribute, ValuedAttribute> attributeMap = new IdentityHashMap<>();
 
-    public PacketEntity(EntityType type) {
-        this.type = type;
+    public PacketEntity(GrimPlayer player, EntityType type) {
+        super(type);
+        this.uuid = null;
+        initAttributes(player);
+        this.trackedServerPosition = new TrackedPosition();
     }
 
-    public PacketEntity(GrimPlayer player, EntityType type, double x, double y, double z) {
-        this.desyncClientPos = new Vector3d(x, y, z);
+    public PacketEntity(GrimPlayer player, UUID uuid, EntityType type, double x, double y, double z) {
+        super(type);
+        this.uuid = uuid;
+        initAttributes(player);
+        this.trackedServerPosition = new TrackedPosition();
+        this.trackedServerPosition.setPos(new Vector3d(x, y, z));
         if (player.getClientVersion().isOlderThan(ClientVersion.V_1_9)) { // Thanks ViaVersion
-            desyncClientPos = new Vector3d(((int) (desyncClientPos.getX() * 32)) / 32d, ((int) (desyncClientPos.getY() * 32)) / 32d, ((int) (desyncClientPos.getZ() * 32)) / 32d);
+            trackedServerPosition.setPos(new Vector3d(((int) (x * 32)) / 32d, ((int) (y * 32)) / 32d, ((int) (z * 32)) / 32d));
         }
-        this.type = type;
-        this.newPacketLocation = new ReachInterpolationData(player, GetBoundingBox.getPacketEntityBoundingBox(player, x, y, z, this),
-                desyncClientPos.getX(), desyncClientPos.getY(), desyncClientPos.getZ(), !player.compensatedEntities.getSelf().inVehicle() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9), this);
+        final Vector3d pos = trackedServerPosition.getPos();
+        this.newPacketLocation = new ReachInterpolationData(player, GetBoundingBox.getPacketEntityBoundingBox(player, pos.x, pos.y, pos.z, this), trackedServerPosition, this);
     }
 
-    public boolean isLivingEntity() {
-        return EntityTypes.isTypeInstanceOf(type, EntityTypes.LIVINGENTITY);
+    protected void trackAttribute(ValuedAttribute valuedAttribute) {
+        if (attributeMap.containsKey(valuedAttribute.attribute())) {
+            throw new IllegalArgumentException("Attribute already exists on entity!");
+        }
+        attributeMap.put(valuedAttribute.attribute(), valuedAttribute);
     }
 
-    public boolean isMinecart() {
-        return EntityTypes.isTypeInstanceOf(type, EntityTypes.MINECART_ABSTRACT);
+    protected void initAttributes(GrimPlayer player) {
+        trackAttribute(ValuedAttribute.ranged(Attributes.GENERIC_SCALE, 1.0, 0.0625, 16)
+                .requiredVersion(player, ClientVersion.V_1_20_5));
+        trackAttribute(ValuedAttribute.ranged(Attributes.GENERIC_STEP_HEIGHT, 0.6f, 0, 10)
+                .requiredVersion(player, ClientVersion.V_1_20_5));
+        trackAttribute(ValuedAttribute.ranged(Attributes.GENERIC_GRAVITY, 0.08, -1, 1)
+                .requiredVersion(player, ClientVersion.V_1_20_5));
     }
 
-    public boolean isHorse() {
-        return EntityTypes.isTypeInstanceOf(type, EntityTypes.ABSTRACT_HORSE);
+    public Optional<ValuedAttribute> getAttribute(Attribute attribute) {
+        if (attribute == null) return Optional.empty();
+        return Optional.ofNullable(attributeMap.get(attribute));
     }
 
-    public boolean isAgeable() {
-        return EntityTypes.isTypeInstanceOf(type, EntityTypes.ABSTRACT_AGEABLE);
+    public void setAttribute(Attribute attribute, double value) {
+        ValuedAttribute property = attributeMap.get(attribute);
+        if (property == null) {
+            throw new IllegalArgumentException("Cannot set attribute " + attribute.getName() + " for entity " + getType().getName().toString() + "!");
+        }
+        property.override(value);
     }
 
-    public boolean isAnimal() {
-        return EntityTypes.isTypeInstanceOf(type, EntityTypes.ABSTRACT_ANIMAL);
+    public double getAttributeValue(Attribute attribute) {
+        final ValuedAttribute property = attributeMap.get(attribute);
+        if (property == null) {
+            throw new IllegalArgumentException("Cannot get attribute " + attribute.getName() + " for entity " + getType().getName().toString() + "!");
+        }
+        return property.get();
     }
 
-    public boolean isSize() {
-        return type == EntityTypes.PHANTOM || type == EntityTypes.SLIME || type == EntityTypes.MAGMA_CUBE;
+    public void resetAttributes() {
+        attributeMap.values().forEach(ValuedAttribute::reset);
     }
 
     // Set the old packet location to the new one
@@ -88,21 +124,27 @@ public class PacketEntity {
         if (hasPos) {
             if (relative) {
                 // This only matters for 1.9+ clients, but it won't hurt 1.8 clients either... align for imprecision
-                desyncClientPos = new Vector3d(Math.floor(desyncClientPos.getX() * 4096) / 4096, Math.floor(desyncClientPos.getY() * 4096) / 4096, Math.floor(desyncClientPos.getZ() * 4096) / 4096);
-                desyncClientPos = desyncClientPos.add(new Vector3d(relX, relY, relZ));
+                final double scale = trackedServerPosition.getScale();
+                Vector3d vec3d;
+                if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_16)) {
+                    vec3d = trackedServerPosition.withDelta(TrackedPosition.pack(relX, scale), TrackedPosition.pack(relY, scale), TrackedPosition.pack(relZ, scale));
+                } else {
+                    vec3d = trackedServerPosition.withDeltaLegacy(TrackedPosition.packLegacy(relX, scale), TrackedPosition.packLegacy(relY, scale), TrackedPosition.packLegacy(relZ, scale));
+                }
+                trackedServerPosition.setPos(vec3d);
             } else {
-                desyncClientPos = new Vector3d(relX, relY, relZ);
+                trackedServerPosition.setPos(new Vector3d(relX, relY, relZ));
                 // ViaVersion desync's here for teleports
                 // It simply teleports the entity with its position divided by 32... ignoring the offset this causes.
                 // Thanks a lot ViaVersion!  Please don't fix this, or it will be a pain to support.
                 if (player.getClientVersion().isOlderThan(ClientVersion.V_1_9)) {
-                    desyncClientPos = new Vector3d(((int) (desyncClientPos.getX() * 32)) / 32d, ((int) (desyncClientPos.getY() * 32)) / 32d, ((int) (desyncClientPos.getZ() * 32)) / 32d);
+                    trackedServerPosition.setPos(new Vector3d(((int) (relX * 32)) / 32d, ((int) (relY * 32)) / 32d, ((int) (relZ * 32)) / 32d));
                 }
             }
         }
 
         this.oldPacketLocation = newPacketLocation;
-        this.newPacketLocation = new ReachInterpolationData(player, oldPacketLocation.getPossibleLocationCombined(), desyncClientPos.getX(), desyncClientPos.getY(), desyncClientPos.getZ(), !player.compensatedEntities.getSelf().inVehicle() && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9), this);
+        this.newPacketLocation = new ReachInterpolationData(player, oldPacketLocation.getPossibleLocationCombined(), trackedServerPosition, this);
     }
 
     // Remove the possibility of the old packet location
@@ -142,7 +184,7 @@ public class PacketEntity {
     public void setPositionRaw(SimpleCollisionBox box) {
         // I'm disappointed in you mojang.  Please don't set the packet position as it desyncs it...
         // But let's follow this flawed client-sided logic!
-        this.desyncClientPos = new Vector3d((box.maxX - box.minX) / 2 + box.minX, box.minY, (box.maxZ - box.minZ) / 2 + box.minZ);
+        this.trackedServerPosition.setPos(new Vector3d((box.maxX - box.minX) / 2 + box.minX, box.minY, (box.maxZ - box.minZ) / 2 + box.minZ));
         // This disables interpolation
         this.newPacketLocation = new ReachInterpolationData(box);
     }
@@ -157,6 +199,15 @@ public class PacketEntity {
 
     public PacketEntity getRiding() {
         return riding;
+    }
+
+    public OptionalInt getPotionEffectLevel(PotionType effect) {
+        final Integer amplifier = potionsMap == null ? null : potionsMap.get(effect);
+        return amplifier == null ? OptionalInt.empty() : OptionalInt.of(amplifier);
+    }
+
+    public boolean hasPotionEffect(PotionType effect) {
+        return potionsMap != null && potionsMap.containsKey(effect);
     }
 
     public void addPotionEffect(PotionType effect, int amplifier) {

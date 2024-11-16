@@ -19,7 +19,7 @@ import com.github.retrooper.packetevents.protocol.world.states.enums.West;
 import com.github.retrooper.packetevents.protocol.world.states.type.StateType;
 import com.github.retrooper.packetevents.protocol.world.states.type.StateTypes;
 
-public class DynamicPane extends DynamicConnecting implements CollisionFactory {
+public class DynamicCollisionPane extends DynamicConnecting implements CollisionFactory {
 
     private static final CollisionBox[] COLLISION_BOXES = makeShapes(1.0F, 1.0F, 16.0F, 0.0F, 16.0F, true);
 
@@ -82,12 +82,11 @@ public class DynamicPane extends DynamicConnecting implements CollisionFactory {
         return true;
     }
 
-
     @Override
-    public boolean checkCanConnect(GrimPlayer player, WrappedBlockState state, StateType one, StateType two) {
-        if (BlockTags.GLASS_PANES.contains(one) || one == StateTypes.IRON_BARS)
+    public boolean checkCanConnect(GrimPlayer player, WrappedBlockState state, StateType one, StateType two, BlockFace direction) {
+        if (BlockTags.GLASS_PANES.contains(one) || one == StateTypes.IRON_BARS || one == StateTypes.CHAIN && player.getClientVersion().isOlderThan(ClientVersion.V_1_16))
             return true;
         else
-            return CollisionData.getData(one).getMovementCollisionBox(player, player.getClientVersion(), state, 0, 0, 0).isFullBlock();
+            return CollisionData.getData(one).getMovementCollisionBox(player, player.getClientVersion(), state, 0, 0, 0).isSideFullBlock(direction);
     }
 }

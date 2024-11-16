@@ -1,6 +1,6 @@
 package ac.grim.grimac.predictionengine;
 
-import ac.grim.grimac.GrimAPI;
+import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.checks.Check;
 import ac.grim.grimac.checks.impl.movement.EntityControl;
 import ac.grim.grimac.checks.impl.prediction.Phase;
@@ -17,6 +17,7 @@ import ac.grim.grimac.utils.anticheat.update.PositionUpdate;
 import ac.grim.grimac.utils.anticheat.update.PredictionComplete;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.grim.grimac.utils.data.VectorData;
+import ac.grim.grimac.utils.data.packetentity.PacketEntity;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityHorse;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityRideable;
 import ac.grim.grimac.utils.data.packetentity.PacketEntityTrackXRot;
@@ -27,9 +28,9 @@ import ac.grim.grimac.utils.math.VectorUtils;
 import ac.grim.grimac.utils.nmsutil.*;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.manager.server.ServerVersion;
+import com.github.retrooper.packetevents.protocol.attribute.Attributes;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
 import com.github.retrooper.packetevents.protocol.item.ItemStack;
-import com.github.retrooper.packetevents.protocol.item.enchantment.type.EnchantmentTypes;
 import com.github.retrooper.packetevents.protocol.item.type.ItemType;
 import com.github.retrooper.packetevents.protocol.item.type.ItemTypes;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
@@ -55,19 +56,14 @@ public class MovementCheckRunner extends Check implements PositionCheck {
         // This teleport wasn't valid as the player STILL hasn't loaded this damn chunk.
         // Keep re-teleporting until they load the chunk!
         if (player.getSetbackTeleportUtil().insideUnloadedChunk()) {
-            player.lastOnGround = player.clientClaimsLastOnGround; // Stop a false on join
-
             // The player doesn't control this vehicle, we don't care
-            if (player.compensatedEntities.getSelf().inVehicle() &&
+            final boolean invalidVehicle = player.compensatedEntities.getSelf().inVehicle() &&
                     (PacketEvents.getAPI().getServerManager().getVersion().isOlderThan(ServerVersion.V_1_9) ||
-                    player.getClientVersion().isOlderThan(ClientVersion.V_1_9))) {
-                return;
-            }
+                            player.getClientVersion().isOlderThan(ClientVersion.V_1_9));
 
-            if (!data.isTeleport()) {
+            if (!invalidVehicle && !data.isTeleport()) {
                 // Teleport the player back to avoid players being able to simply ignore transactions
                 player.getSetbackTeleportUtil().executeForceResync();
-                return;
             }
         }
 
@@ -180,19 +176,21 @@ public class MovementCheckRunner extends Check implements PositionCheck {
             player.clientVelocity.multiply(0.98); // This is vanilla, do not touch
         }
 
+        final PacketEntity riding = player.compensatedEntities.getSelf().getRiding();
         if (player.vehicleData.wasVehicleSwitch || player.vehicleData.lastDummy) {
             update.setTeleport(true);
 
             player.vehicleData.lastDummy = false;
             player.vehicleData.wasVehicleSwitch = false;
 
-            if (player.compensatedEntities.getSelf().getRiding() != null) {
+            if (riding != null) {
                 Vector pos = new Vector(player.x, player.y, player.z);
-                SimpleCollisionBox interTruePositions = player.compensatedEntities.getSelf().getRiding().getPossibleCollisionBoxes();
+                SimpleCollisionBox interTruePositions = riding.getPossibleCollisionBoxes();
 
                 // We shrink the expanded bounding box to what the packet positions can be, for a smaller box
-                float width = BoundingBoxSize.getWidth(player, player.compensatedEntities.getSelf().getRiding());
-                float height = BoundingBoxSize.getHeight(player, player.compensatedEntities.getSelf().getRiding());
+                final float scale = (float) riding.getAttributeValue(Attributes.GENERIC_SCALE);
+                float width = BoundingBoxSize.getWidth(player, riding) * scale;
+                float height = BoundingBoxSize.getHeight(player, riding) * scale;
                 interTruePositions.expand(-width, 0, -width);
                 interTruePositions.expandMax(0, -height, 0);
 
@@ -238,7 +236,7 @@ public class MovementCheckRunner extends Check implements PositionCheck {
         if (player.isInBed) return;
 
         if (!player.compensatedEntities.getSelf().inVehicle()) {
-            player.speed = player.compensatedEntities.getPlayerMovementSpeed();
+            player.speed = player.compensatedEntities.getSelf().getAttributeValue(Attributes.GENERIC_MOVEMENT_SPEED);
             if (player.hasGravity != player.playerEntityHasGravity) {
                 player.pointThreeEstimator.updatePlayerGravity();
             }
@@ -258,25 +256,24 @@ public class MovementCheckRunner extends Check implements PositionCheck {
             player.checkManager.getExplosionHandler().forceExempt();
 
             // When in control of the entity, the player sets the entity position to their current position
-            player.compensatedEntities.getSelf().getRiding().setPositionRaw(GetBoundingBox.getPacketEntityBoundingBox(player, player.x, player.y, player.z, player.compensatedEntities.getSelf().getRiding()));
+            riding.setPositionRaw(GetBoundingBox.getPacketEntityBoundingBox(player, player.x, player.y, player.z, riding));
 
-            if (player.compensatedEntities.getSelf().getRiding() instanceof PacketEntityTrackXRot) {
-                PacketEntityTrackXRot boat = (PacketEntityTrackXRot) player.compensatedEntities.getSelf().getRiding();
+            if (riding instanceof PacketEntityTrackXRot boat) {
                 boat.packetYaw = player.xRot;
                 boat.interpYaw = player.xRot;
                 boat.steps = 0;
             }
 
-            if (player.hasGravity != player.compensatedEntities.getSelf().getRiding().hasGravity) {
+            if (player.hasGravity != riding.hasGravity) {
                 player.pointThreeEstimator.updatePlayerGravity();
             }
-            player.hasGravity = player.compensatedEntities.getSelf().getRiding().hasGravity;
+            player.hasGravity = riding.hasGravity;
 
             // For whatever reason the vehicle move packet occurs AFTER the player changes slots...
-            if (player.compensatedEntities.getSelf().getRiding() instanceof PacketEntityRideable) {
+            if (riding instanceof PacketEntityRideable) {
                 EntityControl control = player.checkManager.getPostPredictionCheck(EntityControl.class);
 
-                ItemType requiredItem = player.compensatedEntities.getSelf().getRiding().type == EntityTypes.PIG ? ItemTypes.CARROT_ON_A_STICK : ItemTypes.WARPED_FUNGUS_ON_A_STICK;
+                ItemType requiredItem = riding.getType() == EntityTypes.PIG ? ItemTypes.CARROT_ON_A_STICK : ItemTypes.WARPED_FUNGUS_ON_A_STICK;
                 ItemStack mainHand = player.getInventory().getHeldItem();
                 ItemStack offHand = player.getInventory().getOffHand();
 
@@ -323,7 +320,7 @@ public class MovementCheckRunner extends Check implements PositionCheck {
             player.isSprinting = false;
             player.isSneaking = false;
 
-            if (player.compensatedEntities.getSelf().getRiding().type != EntityTypes.PIG && player.compensatedEntities.getSelf().getRiding().type != EntityTypes.STRIDER) {
+            if (riding.getType() != EntityTypes.PIG && riding.getType() != EntityTypes.STRIDER) {
                 player.isClimbing = false;
             }
         }
@@ -341,7 +338,7 @@ public class MovementCheckRunner extends Check implements PositionCheck {
         boolean clientClaimsRiptide = player.packetStateData.tryingToRiptide;
         if (player.packetStateData.tryingToRiptide) {
             long currentTime = System.currentTimeMillis();
-            boolean isInWater = player.compensatedWorld.isRaining || Collisions.hasMaterial(player, player.boundingBox.copy().expand(0.1f), (block) -> Materials.isWater(CompensatedWorld.blockVersion, block.getFirst()));
+            boolean isInWater = player.compensatedWorld.isRaining || Collisions.hasMaterial(player, player.boundingBox.copy().expand(0.1f), (block) -> Materials.isWater(CompensatedWorld.blockVersion, block.first()));
 
             if (currentTime - player.packetStateData.lastRiptide < 450 || !isInWater) {
                 player.packetStateData.tryingToRiptide = false;
@@ -352,7 +349,7 @@ public class MovementCheckRunner extends Check implements PositionCheck {
 
         SimpleCollisionBox steppingOnBB = GetBoundingBox.getCollisionBoxForPlayer(player, player.x, player.y, player.z).expand(0.03).offset(0, -1, 0);
         Collisions.hasMaterial(player, steppingOnBB, (pair) -> {
-            WrappedBlockState data = pair.getFirst();
+            WrappedBlockState data = pair.first();
             if (data.getType() == StateTypes.SLIME_BLOCK && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_8)) {
                 player.uncertaintyHandler.isSteppingOnSlime = true;
                 player.uncertaintyHandler.isSteppingOnBouncyBlock = true;
@@ -364,7 +361,7 @@ public class MovementCheckRunner extends Check implements PositionCheck {
                 }
                 player.uncertaintyHandler.isSteppingOnHoney = true;
             }
-            if (BlockTags.BEDS.contains(data.getType()) && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_8)) {
+            if (BlockTags.BEDS.contains(data.getType()) && player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_12)) {
                 player.uncertaintyHandler.isSteppingOnBouncyBlock = true;
             }
             if (BlockTags.ICE.contains(data.getType())) {
@@ -382,7 +379,7 @@ public class MovementCheckRunner extends Check implements PositionCheck {
         player.uncertaintyHandler.thisTickSlimeBlockUncertainty = player.uncertaintyHandler.nextTickSlimeBlockUncertainty;
         player.uncertaintyHandler.nextTickSlimeBlockUncertainty = 0;
 
-        SimpleCollisionBox expandedBB = GetBoundingBox.getBoundingBoxFromPosAndSize(player.lastX, player.lastY, player.lastZ, 0.001f, 0.001f);
+        SimpleCollisionBox expandedBB = GetBoundingBox.getBoundingBoxFromPosAndSize(player, player.lastX, player.lastY, player.lastZ, 0.001f, 0.001f);
 
         // Don't expand if the player moved more than 50 blocks this tick (stop netty crash exploit)
         if (player.actualMovement.lengthSquared() < 2500)
@@ -398,8 +395,8 @@ public class MovementCheckRunner extends Check implements PositionCheck {
 
         player.uncertaintyHandler.isNearGlitchyBlock = player.getClientVersion().isOlderThan(ClientVersion.V_1_9)
                 && Collisions.hasMaterial(player, expandedBB.copy().expand(0.2),
-                checkData -> BlockTags.ANVIL.contains(checkData.getFirst().getType())
-                        || checkData.getFirst().getType() == StateTypes.CHEST || checkData.getFirst().getType() == StateTypes.TRAPPED_CHEST);
+                checkData -> BlockTags.ANVIL.contains(checkData.first().getType())
+                        || checkData.first().getType() == StateTypes.CHEST || checkData.first().getType() == StateTypes.TRAPPED_CHEST);
 
         player.uncertaintyHandler.isOrWasNearGlitchyBlock = isGlitchy || player.uncertaintyHandler.isNearGlitchyBlock;
         player.uncertaintyHandler.checkForHardCollision();
@@ -427,7 +424,7 @@ public class MovementCheckRunner extends Check implements PositionCheck {
         boolean wasChecked = false;
 
         // Exempt if the player is dead or is riding a dead entity
-        if (player.compensatedEntities.getSelf().isDead || (player.compensatedEntities.getSelf().getRiding() != null && player.compensatedEntities.getSelf().getRiding().isDead)) {
+        if (player.compensatedEntities.getSelf().isDead || (riding != null && riding.isDead)) {
             // Dead players can't cheat, if you find a way how they could, open an issue
             player.predictedVelocity = new VectorData(new Vector(), VectorData.VectorType.Dead);
             player.clientVelocity = new Vector();
@@ -441,23 +438,11 @@ public class MovementCheckRunner extends Check implements PositionCheck {
             player.gravity = 0;
             player.friction = 0.91f;
             PredictionEngineNormal.staticVectorEndOfTick(player, player.clientVelocity);
-        } else if (player.compensatedEntities.getSelf().getRiding() == null) {
+        } else if (riding == null) {
             wasChecked = true;
 
-            // Depth strider was added in 1.8
-            ItemStack boots = player.getInventory().getBoots();
-            if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_8)) {
-                player.depthStriderLevel = boots.getEnchantmentLevel(EnchantmentTypes.DEPTH_STRIDER, PacketEvents.getAPI().getServerManager().getVersion().toClientVersion());
-            } else {
-                player.depthStriderLevel = 0;
-            }
-
-            if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_19)) {
-                ItemStack leggings = player.getInventory().getLeggings();
-                player.sneakingSpeedMultiplier = GrimMath.clampFloat(0.3F + (leggings.getEnchantmentLevel(EnchantmentTypes.SWIFT_SNEAK, player.getClientVersion()) * 0.15F), 0f, 1f);
-            } else {
-                player.sneakingSpeedMultiplier = 0.3F;
-            }
+            player.depthStriderLevel = (float) player.compensatedEntities.getSelf().getAttributeValue(Attributes.GENERIC_WATER_MOVEMENT_EFFICIENCY);
+            player.sneakingSpeedMultiplier = (float) player.compensatedEntities.getSelf().getAttributeValue(Attributes.PLAYER_SNEAKING_SPEED);
 
             // This is wrong and the engine was not designed around stuff like this
             player.verticalCollision = false;
@@ -495,17 +480,17 @@ public class MovementCheckRunner extends Check implements PositionCheck {
             // The player and server are both on a version with client controlled entities
             // If either or both of the client server version has server controlled entities
             // The player can't use entities (or the server just checks the entities)
-            if (EntityTypes.isTypeInstanceOf(player.compensatedEntities.getSelf().getRiding().type, EntityTypes.BOAT)) {
+            if (riding.isBoat()) {
                 new PlayerBaseTick(player).doBaseTick();
                 // Speed doesn't affect anything with boat movement
                 new BoatPredictionEngine(player).guessBestMovement(0.1f, player);
-            } else if (player.compensatedEntities.getSelf().getRiding() instanceof PacketEntityHorse) {
+            } else if (riding instanceof PacketEntityHorse) {
                 new PlayerBaseTick(player).doBaseTick();
                 new MovementTickerHorse(player).livingEntityAIStep();
-            } else if (player.compensatedEntities.getSelf().getRiding().type == EntityTypes.PIG) {
+            } else if (riding.getType() == EntityTypes.PIG) {
                 new PlayerBaseTick(player).doBaseTick();
                 new MovementTickerPig(player).livingEntityAIStep();
-            } else if (player.compensatedEntities.getSelf().getRiding().type == EntityTypes.STRIDER) {
+            } else if (riding.getType() == EntityTypes.STRIDER) {
                 new PlayerBaseTick(player).doBaseTick();
                 new MovementTickerStrider(player).livingEntityAIStep();
                 MovementTickerStrider.floatStrider(player);
@@ -556,8 +541,7 @@ public class MovementCheckRunner extends Check implements PositionCheck {
         player.checkManager.onPredictionFinish(new PredictionComplete(offset, update, wasChecked));
 
         // Patch sprint jumping with elytra exploit
-        if (player.bukkitPlayer != null && player.isGliding && player.predictedVelocity.isJump() && player.isSprinting
-                && !GrimAPI.INSTANCE.getConfigManager().getConfig().getBooleanElse("exploit.allow-sprint-jumping-when-using-elytra", true)) {
+        if (player.bukkitPlayer != null && player.isGliding && player.predictedVelocity.isJump() && player.isSprinting && !allowSprintJumpingWithElytra) {
             SetbackTeleportUtil.SetbackPosWithVector lastKnownGoodPosition = player.getSetbackTeleportUtil().lastKnownGoodPosition;
             lastKnownGoodPosition.setVector(lastKnownGoodPosition.getVector().multiply(new Vector(0.6 * 0.91, 1, 0.6 * 0.91)));
             player.getSetbackTeleportUtil().executeNonSimulatingSetback();
@@ -607,8 +591,10 @@ public class MovementCheckRunner extends Check implements PositionCheck {
 
         player.vehicleData.vehicleForward = (float) Math.min(0.98, Math.max(-0.98, player.vehicleData.nextVehicleForward));
         player.vehicleData.vehicleHorizontal = (float) Math.min(0.98, Math.max(-0.98, player.vehicleData.nextVehicleHorizontal));
-        player.vehicleData.horseJump = player.vehicleData.nextHorseJump;
-        player.vehicleData.nextHorseJump = 0;
+        if (player.onGround) { // if vehicle is on ground, this gets set
+            player.vehicleData.horseJump = player.vehicleData.nextHorseJump;
+            player.vehicleData.nextHorseJump = 0;
+        }
         player.minPlayerAttackSlow = 0;
         player.maxPlayerAttackSlow = 0;
 
@@ -645,4 +631,12 @@ public class MovementCheckRunner extends Check implements PositionCheck {
         // (Patches issues with slime and other desync's)
         return riptideDiffToGround < riptideDiffToBase;
     }
+
+    private boolean allowSprintJumpingWithElytra = true;
+
+    @Override
+    public void onReload(ConfigManager config) {
+        allowSprintJumpingWithElytra = config.getBooleanElse("exploit.allow-sprint-jumping-when-using-elytra", true);
+    }
+
 }

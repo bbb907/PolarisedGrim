@@ -1,6 +1,6 @@
 # Configuration principale de GrimAC
 # Code source : https://github.com/MWHunter/Grim
-# Copyright 2022 DefineOutside et contributeurs, sous licence GPLv3.
+# Copyright 2024 DefineOutside et contributeurs, sous licence GPLv3.
 # Les binaires modifiés, ou les plugins contenant du code grim copié, doivent être privés,
 # ou avec le code source complet disponible pour les acheteurs sans frais supplémentaires.
 
@@ -35,6 +35,14 @@ spectators:
 
 # Au bout de combien de temps les joueurs doivent-ils être expulsés en cas de perte de connexion ? Défault = 60 secondes
 max-transaction-time: 60
+
+# Should the duplicate movement packet be cancelled?
+# Mojang has fixed this issue in 1.21. This was their attempt to fix the "bucket desync". https://bugs.mojang.com/browse/MC-12363
+# This setting only applies to 1.17-1.20.5 clients on 1.8 servers.
+cancel-duplicate-packet: true
+
+# Whether or not to ignore the rotation in duplicate packets
+ignore-duplicate-packet-rotation: false
 
 Simulation:
   # De combien devons-nous multiplier l'avantage total lorsque le joueur est légitime ?
@@ -79,7 +87,7 @@ RotationPlace:
 # Vérification de no-slow basée sur la prédiction.
 # Grim tient compte des problèmes de netcode ici... difficile à tromper même en spamant le clic droit et le bouton de la main secondaire.
 # Bien plus stable que les autres anti-triche, mais veuillez signaler toute fausse détection... J'ai corrigé de nombreux problèmes de netcode ici.
-NoSlow:
+NoSlowA:
   # Quel est le niveau d'écart considéré comme "triche"
   # Par défaut, cela est inférieur à d'autres écarts.
   # Génère des avertissements avec des valeurs comprises entre 0,03 et 0,2 lors de l'utilisation de NoSlow
@@ -114,6 +122,10 @@ TimerA:
   # Le nombre de millisecondes que le joueur peut accumuler pour une utilisation ultérieure lorsqu'il prend du retard.
   # Si la valeur est trop élevée, cela pourrait potentiellement permettre de contourner les mécaniques 1.8, comme l'utilisation rapide, la guérison rapide et le tir à l'arc rapide. Une valeur de 120 ms semble être un bon équilibre.
   drift: 120
+  # Ping at which the check will start to limit timer balance, to prevent abuse.
+  # Can cause some setbacks for legitimate players but only if they are over this ping threshold.
+  # -1 to disable
+  ping-abuse-limit-threshold: 1000
 
 NegativeTimer:
   # Le nombre de millisecondes perdus pendant le déplacement avant de commencer à signaler des infractions.
@@ -147,6 +159,9 @@ Reach:
 
 exploit:
   allow-sprint-jumping-when-using-elytra: true
+  # Cette option atténue le placement du joueur sur les ghostblocks en resynchronisant le joueur lorsque cela se produit.
+  allow-building-on-ghostblocks: true
+  distance-to-check-if-ghostblocks: 2
 
 # Activer l'enregistrement des plugins ayant injecté dans Netty lors de la connexion pour déboguer les problèmes de compatibilité
 debug-pipeline-on-join: false
@@ -158,5 +173,14 @@ experimental-checks: false
 # à partir de combien de paquets annulés devrions-nous simplement expulser le joueur ?
 # Cela est nécessaire car certains limiteurs de paquets ne comptent pas les paquets annulés par Grim.
 packet-spam-threshold: 100
+
+# Grim est capable de faire respecter qu'un joueur sorti de l'état de vol ne peut pas avoir plus de X millisecondes de ping.
+# Cela est dû au fait que Grim ne vérifie pas actuellement les joueurs en vol.
+# To disable, use -1
+max-ping-out-of-flying: 1000
+
+# Maximum ping when a firework boost is removed from the player.
+# This prevents high latency players from being able to use 1 firework boost with an elytra forever.
+max-ping-firework-boost: 1000
 
 config-version: 9

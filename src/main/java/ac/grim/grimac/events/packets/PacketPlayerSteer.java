@@ -10,7 +10,6 @@ import com.github.retrooper.packetevents.event.PacketListenerAbstract;
 import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.manager.server.ServerVersion;
-import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientSteerVehicle;
@@ -44,7 +43,7 @@ public class PacketPlayerSteer extends PacketListenerAbstract {
             if (player.packetStateData.receivedSteerVehicle && riding != null) {
                 // Horse and boat have first passenger in control
                 // If the player is the first passenger, disregard this attempt to have the server control the entity
-                if ((EntityTypes.isTypeInstanceOf(riding.type, EntityTypes.BOAT) || riding instanceof PacketEntityHorse) && riding.passengers.get(0) == player.compensatedEntities.getSelf() &&
+                if ((riding.isBoat() || riding instanceof PacketEntityHorse) && riding.passengers.get(0) == player.compensatedEntities.getSelf() &&
                         // Although if the player has server controlled entities
                         player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_9) &&
                         // or the server controls the entities, then this is vanilla logic so allow it
