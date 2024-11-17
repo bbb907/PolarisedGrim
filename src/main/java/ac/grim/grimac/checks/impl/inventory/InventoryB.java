@@ -14,7 +14,7 @@ import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientIn
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerDigging;
 import io.github.retrooper.packetevents.util.FoliaCompatUtil;
 
-@CheckData(name = "InventoryB", setback = 3)
+@CheckData(name = "InventoryB", setback = 3, description = "Started digging blocks while inventory is open")
 public class InventoryB extends InventoryCheck {
     public InventoryB(GrimPlayer player) {
         super(player);
@@ -25,7 +25,7 @@ public class InventoryB extends InventoryCheck {
 
         // Is not possible to start digging a block while the inventory is open.
         if (player.hasInventoryOpen) {
-            if (flagAndAlert("Started digging blocks while inventory is open")) {
+            if (flagAndAlert()) {
                 // Cancel the packet
                 if (shouldModifyPackets()) {
                     event.setCancelled(true);

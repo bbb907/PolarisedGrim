@@ -9,7 +9,7 @@ import com.github.retrooper.packetevents.manager.server.ServerVersion;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 
-@CheckData(name = "InventoryG", setback = 3, experimental = true)
+@CheckData(name = "InventoryG", setback = 3, description = "Sent a entity action packet while inventory is open", experimental = true)
 public class InventoryG extends InventoryCheck {
 
     public InventoryG(GrimPlayer player) {
@@ -23,7 +23,7 @@ public class InventoryG extends InventoryCheck {
 
         if (event.getPacketType() == PacketType.Play.Client.ENTITY_ACTION) {
             if (player.hasInventoryOpen && (System.currentTimeMillis() - player.lastInventoryOpen > 50L)) {
-                if (flagAndAlert("Sent a entity action packet while inventory is open")) {
+                if (flagAndAlert()) {
                     closeInventory();
                 }
             } else {

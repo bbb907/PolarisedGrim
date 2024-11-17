@@ -9,7 +9,7 @@ import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 
-@CheckData(name = "InventoryE", setback = 3)
+@CheckData(name = "InventoryE", setback = 3, description = "Sent a held item change packet while inventory is open")
 public class InventoryE extends InventoryCheck {
     private long lastTransaction = Long.MAX_VALUE; // Impossible transaction ID
 
@@ -26,7 +26,7 @@ public class InventoryE extends InventoryCheck {
             // A container click packet would be sent instead
             if (player.hasInventoryOpen) {
                 if (this.lastTransaction < player.lastTransactionReceived.get()
-                        && flagAndAlert("Sent a held item change packet while inventory is open")) {
+                        && flagAndAlert()) {
                     // Cancel the packet
                     if (shouldModifyPackets()) {
                         event.setCancelled(true);

@@ -123,8 +123,8 @@ public class PacketPlayerWindow extends PacketListenerAbstract {
     }
 
     private boolean isAlwaysDesynced(GrimPlayer player, String legacyType, int modernType) {
-        // Closing beacon with the cross button cause desync in 1.8
-        if (player.getClientVersion() == ClientVersion.V_1_8 &&
+        // Closing beacon with the cross button cause desync in 1.7-1.8
+        if (player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_8) &&
                 ("minecraft:beacon".equals(legacyType) || modernType == 8)) {
             return true;
         }
