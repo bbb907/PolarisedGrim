@@ -28,8 +28,8 @@ public class PacketPlayerWindow extends PacketListenerAbstract {
             GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
             if (player == null) return;
 
-            if (player.hasInventoryOpen && isDesynced(player)) {
-                handleInventoryStatusChange(player, true);
+            if (player.hasInventoryOpen && isNearNetherPortal(player)) {
+                handleInventoryStatusChange(player, false);
             }
         }
 
@@ -94,7 +94,7 @@ public class PacketPlayerWindow extends PacketListenerAbstract {
             int modernType = wrapper.getType();
 
             player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(),
-                                                () -> handleInventoryStatusChange(player, !isAlwaysDesynced(player, legacyType, modernType)));
+                                                () -> handleInventoryStatusChange(player, !isAlwaysDesyncedContainer(player, legacyType, modernType)));
         } else if (event.getPacketType() == PacketType.Play.Server.OPEN_HORSE_WINDOW) {
             GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
             if (player == null) return;
@@ -120,19 +120,22 @@ public class PacketPlayerWindow extends PacketListenerAbstract {
         }
 
         player.hasInventoryOpen = open;
+        if (!open) {
+            player.isDesyncedContainer = false;
+        }
     }
 
-    private boolean isAlwaysDesynced(GrimPlayer player, String legacyType, int modernType) {
+    public boolean isAlwaysDesyncedContainer(GrimPlayer player, String legacyType, int modernType) {
         // Closing beacon with the cross button cause desync in 1.7-1.8
         if (player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_8) &&
                 ("minecraft:beacon".equals(legacyType) || modernType == 8)) {
-            return true;
+            return player.isDesyncedContainer = true;
         }
 
-        return isDesynced(player);
+        return player.isDesyncedContainer = isNearNetherPortal(player);
     }
 
-    private boolean isDesynced(GrimPlayer player) {
+    private boolean isNearNetherPortal(GrimPlayer player) {
         // Going inside nether portal with opened inventory cause desync, fixed in 1.12.2
         if (player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_12_1) &&
                 player.pointThreeEstimator.isNearNetherPortal) {
