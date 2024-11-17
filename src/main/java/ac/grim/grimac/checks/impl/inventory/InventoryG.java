@@ -28,7 +28,7 @@ public class InventoryG extends InventoryCheck {
                 return;
             }
 
-            if (player.hasInventoryOpen && (System.currentTimeMillis() - player.lastInventoryOpen > 50L)) {
+            if (player.hasInventoryOpen) {
                 if (flagAndAlert()) {
                     closeInventory();
                 }
