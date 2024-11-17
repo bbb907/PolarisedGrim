@@ -27,7 +27,7 @@ public class InventoryF extends InventoryCheck {
         super.onPacketReceive(event);
 
         if (event.getPacketType() == PacketType.Play.Client.CLICK_WINDOW) {
-            if (!player.hasInventoryOpen && player.inventoryDesyncStatus != InventoryDesyncStatus.NOT_DESYNCED) {
+            if (!player.hasInventoryOpen && player.inventoryDesyncStatus == InventoryDesyncStatus.NOT_DESYNCED) {
                 if (flagAndAlert()) {
                     // Cancel the packet
                     if (shouldModifyPackets()) {
