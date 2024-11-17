@@ -3,6 +3,7 @@ package ac.grim.grimac.checks.impl.inventory;
 import ac.grim.grimac.checks.CheckData;
 import ac.grim.grimac.checks.type.InventoryCheck;
 import ac.grim.grimac.player.GrimPlayer;
+import ac.grim.grimac.utils.inventory.InventoryDesyncStatus;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketReceiveEvent;
 import com.github.retrooper.packetevents.manager.server.ServerVersion;
@@ -26,7 +27,7 @@ public class InventoryF extends InventoryCheck {
         super.onPacketReceive(event);
 
         if (event.getPacketType() == PacketType.Play.Client.CLICK_WINDOW) {
-            if (!player.hasInventoryOpen && !player.isDesyncedContainer) {
+            if (!player.hasInventoryOpen && player.inventoryDesyncStatus != InventoryDesyncStatus.NOT_DESYNCED) {
                 if (flagAndAlert()) {
                     // Cancel the packet
                     if (shouldModifyPackets()) {
