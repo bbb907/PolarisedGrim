@@ -21,8 +21,8 @@ public class AimProcessor extends Check implements RotationCheck {
     RunningMode xRotMode = new RunningMode(TOTAL_SAMPLES_THRESHOLD);
     RunningMode yRotMode = new RunningMode(TOTAL_SAMPLES_THRESHOLD);
 
-    float lastXRot;
-    float lastYRot;
+    float lastXRot = -9.05f;
+    float lastYRot = -9.05f;
 
     public double sensitivityX;
     public double sensitivityY;
