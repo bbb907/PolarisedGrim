@@ -50,7 +50,7 @@ public class AimHeuristic extends Check implements PostPredictionCheck {
 
                     double differences = Math.abs(yawAccels.getAverage() - pitchAccels.getAverage());
 
-                    if (differences >= 5.5) {
+                    if (differences >= 2.2) {
                         player.bukkitPlayer.sendMessage("D: "+differences);
                         flagAndAlert();
                     }

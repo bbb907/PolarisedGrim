@@ -94,6 +94,14 @@ Punishments:
       - "5:5 [alert]"
       - "5:5 [webhook]"
       - "5:5 [proxy]"
+  AimHeuristicLinear:
+    remove-violations-after: 45
+    checks:
+      - "AimHeuristicLinear"
+    commands:
+      - "12:12 [alert]"
+      - "12:12 [webhook]"
+      - "12:12 [proxy]"
   # As of 2.2.10, there are no AutoClicker checks and this is a placeholder. Grim will include AutoClicker checks in the future.
   Autoclicker:
     remove-violations-after: 300
